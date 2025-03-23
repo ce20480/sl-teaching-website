@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "asl-teaching-backend"
+version = "0.1.0"
+description = "ASL Teaching Website Backend"
+authors = ["Your Name"]
+readme = "README.md"
+packages = [
+    { include = "src" },
+    { include = "scripts" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.2"
+uvicorn = {extras = ["standard"], version = "^0.27.1"}
+python-multipart = "^0.0.9"
+pydantic = "^2.6.1"
+pydantic-settings = "^2.1.0"
+python-dotenv = "^1.0.1"
+aiohttp = "^3.11.14"
+pytest-asyncio = "^0.25.3"
+pytest-aiohttp = "^1.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.1.1"
+isort = "^5.13.2"
+
+[tool.poetry.scripts]
+dev = "scripts.dev:main"
+akave = "scripts.docker_manager:main"
+start = "uvicorn src.main:app"
+test = "pytest:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
