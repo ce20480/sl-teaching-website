@@ -1,10 +1,60 @@
 import { Camera, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import useCamera from "@/hooks/useCamera";
+import { useState, useEffect } from "react";
+import { WebcamHandDetector } from "@/components/features/hands/WebcamHandDetector";
+import { HandLandmarkerResult } from "@mediapipe/tasks-vision";
 
 const Translate = () => {
-  const { videoRef, isRecording, startCamera, stopCamera } = useCamera();
+  const [isActive, setIsActive] = useState(false);
+  const [prediction, setPrediction] = useState<string>("");
+
+  const handleHandsDetected = (
+    results: HandLandmarkerResult,
+    landmarks?: number[]
+  ) => {
+    // Only process if hands were actually detected
+    if (results.landmarks && results.landmarks.length > 0) {
+      // For now just log the landmarks
+      console.log("Hand landmarks detected:", landmarks);
+
+      // In the future, send landmarks to the backend for prediction
+      // For now, we could display some basic data about the detection
+      if (results.handednesses && results.handednesses.length > 0) {
+        const handedness = results.handednesses[0][0];
+        setPrediction(
+          `Detected ${
+            handedness.categoryName
+          } hand with ${handedness.score.toFixed(2)} confidence`
+        );
+      }
+    } else {
+      setPrediction("No hands detected");
+    }
+  };
+
+  const toggleCamera = () => {
+    // If we're turning off the camera, clear prediction
+    if (isActive) {
+      setPrediction("");
+    }
+    setIsActive(!isActive);
+  };
+
+  // Clear prediction when component unmounts
+  useEffect(() => {
+    return () => {
+      // Force stop any webcam that might be running when navigating away
+      navigator.mediaDevices
+        .getUserMedia({ video: true })
+        .then((stream) => {
+          stream.getTracks().forEach((track) => track.stop());
+        })
+        .catch(() => {
+          // Ignore errors here, we're just trying to clean up
+        });
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -27,28 +77,22 @@ const Translate = () => {
           <div className="flex items-center justify-between">
             <CardTitle>Camera Feed</CardTitle>
             <Button
-              onClick={isRecording ? stopCamera : startCamera}
-              variant={isRecording ? "destructive" : "default"}
+              onClick={toggleCamera}
+              variant={isActive ? "destructive" : "default"}
               size="sm"
             >
               <Camera className="mr-2 h-4 w-4" />
-              {isRecording ? "Stop Camera" : "Start Camera"}
+              {isActive ? "Stop Camera" : "Start Camera"}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-muted">
-            <video
-              ref={videoRef}
-              className="absolute inset-0 h-full w-full object-cover"
+            <WebcamHandDetector
+              onHandsDetected={handleHandsDetected}
+              className="w-full h-full"
+              isActive={isActive}
             />
-            {!isRecording && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <p className="text-muted-foreground">
-                  Start camera to begin translation
-                </p>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -59,7 +103,7 @@ const Translate = () => {
         </CardHeader>
         <CardContent>
           <div className="h-32 flex items-center justify-center text-muted-foreground">
-            Translation results will appear here in real-time
+            {prediction || "Translation results will appear here in real-time"}
           </div>
         </CardContent>
       </Card>
