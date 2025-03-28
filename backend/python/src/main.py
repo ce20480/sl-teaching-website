@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes.storage import storage_router
+from .api.routes.prediction import prediction_router
 
 app = FastAPI()
 
@@ -20,6 +21,7 @@ app.add_middleware(
 
 # Mount routes
 app.include_router(storage_router)
+app.include_router(prediction_router)
 
 @app.get("/health")
 async def health_check():
