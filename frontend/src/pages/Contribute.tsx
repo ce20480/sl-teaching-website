@@ -11,29 +11,35 @@ import { FileUpload } from "@/components/features/upload/FileUpload";
 import { storageApi, ApiError } from "@/lib/services/api";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
+import { useAccount } from "wagmi";
 
 export default function Contribute() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const { address } = useAccount();
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || !address) return;
 
     try {
       setIsUploading(true);
       setUploadProgress(0);
 
-      const result = await storageApi.uploadFile(selectedFile, (progress) => {
-        setUploadProgress(progress);
-      });
+      const result = await storageApi.uploadFile(
+        selectedFile, 
+        (progress) => {
+          setUploadProgress(progress);
+        },
+        address // Pass the user's wallet address
+      );
 
       console.log("Upload successful:", result);
-      toast.success("File successfully uploaded to Filecoin network!");
+      toast.success("File successfully uploaded and submitted for evaluation!");
       setSelectedFile(null);
     } catch (error) {
       console.error("Upload error details:", error);
@@ -70,7 +76,10 @@ export default function Contribute() {
           <FileUpload
             onFileSelect={handleFileSelect}
             onRemove={() => setSelectedFile(null)}
-            accept="image/*,video/*"
+            accept={{
+              'image/*': ['.png', '.jpg', '.jpeg', '.gif'],
+              'video/*': ['.mp4', '.webm', '.mov']
+            }}
             maxSize={10 * 1024 * 1024} // 10MB
           />
 
@@ -81,12 +90,16 @@ export default function Contribute() {
               )}
               <Button
                 onClick={handleUpload}
-                disabled={isUploading}
+                disabled={isUploading || !address}
                 className="w-full"
               >
-                {isUploading
-                  ? "Uploading to Filecoin..."
-                  : "Upload to Filecoin"}
+                {!address ? (
+                  "Connect wallet to upload"
+                ) : isUploading ? (
+                  "Uploading to Filecoin..."
+                ) : (
+                  "Upload to Filecoin"
+                )}
               </Button>
             </div>
           )}

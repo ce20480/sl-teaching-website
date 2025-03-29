@@ -8,26 +8,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-const achievements = [
-  {
-    name: "Quick Learner",
-    description: "Completed 5 lessons in one day",
-    date: "2024-03-15",
-  },
-  {
-    name: "Contributor",
-    description: "Submitted 10 sign language videos",
-    date: "2024-03-10",
-  },
-  {
-    name: "Week Warrior",
-    description: "Maintained a 7-day streak",
-    date: "2024-03-01",
-  },
-];
+import { useAccount } from 'wagmi';
+import { AchievementDisplay } from '@/components/AchievementDisplay';
 
 const Profile = () => {
+  const { isConnected } = useAccount();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -56,25 +42,16 @@ const Profile = () => {
             <Award className="h-5 w-5 text-primary" />
             <CardTitle>Achievements</CardTitle>
           </div>
-          <CardDescription>Your latest accomplishments</CardDescription>
+          <CardDescription>Your on-chain accomplishments</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {achievements.map((achievement) => (
-              <div key={achievement.name} className="flex items-start gap-4">
-                <Award className="h-5 w-5 text-yellow-500 mt-1" />
-                <div>
-                  <h3 className="font-semibold">{achievement.name}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {achievement.description}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Earned on {new Date(achievement.date).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+          {!isConnected ? (
+            <div className="text-center py-4 text-muted-foreground">
+              Please connect your wallet to view your achievements
+            </div>
+          ) : (
+            <AchievementDisplay />
+          )}
         </CardContent>
       </Card>
 

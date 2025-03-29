@@ -31,4 +31,14 @@ export default defineConfig({
       include: [/node_modules/],
     }
   },
+  server: {
+    proxy: {
+      // Proxy /api/storage requests to Express backend
+      '/api/storage': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 });

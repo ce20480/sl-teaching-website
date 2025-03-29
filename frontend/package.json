@@ -26,6 +26,7 @@
     "process": "^0.11.10",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-dropzone": "^14.3.8",
     "react-router-dom": "^6.22.2",
     "shadcn": "^2.4.0-canary.17",
     "sonner": "^1.4.3",
