@@ -112,38 +112,6 @@ git clone https://github.com/yourusername/asl-teaching-website.git
 cd asl-teaching-website
 ```
 
-2. Set up the frontend:
-
-```bash
-cd frontend
-npm install
-```
-
-3. Set up the backend:
-
-```bash
-cd backend/python
-poetry install
-poetry shell
-uvicorn main:app --reload
-```
-
-```bash
-cd backend/express
-npm install
-npm run dev
-```
-
-4. Set up environment variables:
-
-Create a `.env` file in the root directory with:
-```env
-PRIVATE_KEY=your_private_key_here
-ETHERSCAN_API_KEY=your_etherscan_api_key
-REACT_APP_WALLET_CONNECT_PROJECT_ID=your_wallet_connect_project_id
-REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
-```
-
 ## Running the Application
 
 1. Start the frontend development server:
@@ -156,15 +124,20 @@ npm run dev
 
 The frontend will be available at `http://localhost:5173`
 
-2. Start the backend server (in a new terminal):
-
+2. Starting the backend
+### Python
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload
+cd backend/python
+poetry install
+poetry run uvicorn main:app --reload
 ```
+### Express
+```bash
+cd backend/express
+npm install
+npm run dev
+```
+The Express server will be available at `http://localhost:4000`
 
 The backend API will be available at `http://localhost:8000`
 
@@ -178,15 +151,6 @@ npm run dev
 
 The Akave server will be available at `http://localhost:3000`
 
-4. Start the Express server (in a new terminal):
-
-```bash
-cd express
-npm install
-npm run dev
-```
-
-The Express server will be available at `http://localhost:4000`
 
 ### Environment Setup
 
@@ -228,6 +192,71 @@ If any server fails to start:
 2. Verify all environment variables are set correctly
 3. Ensure all dependencies are installed
 4. Check the server logs for specific error messages
+
+### Configuration Details
+
+#### TailwindCSS Configuration
+The `frontend/tailwind.config.js` file should contain:
+```javascript
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: [
+    "./src/**/*.{js,jsx,ts,tsx}",
+    "./index.html"
+  ],
+  theme: {
+    // Theme configuration including colors, animations, etc.
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        // ... other color configurations
+      }
+    }
+  },
+  plugins: [require("tailwindcss-animate")]
+}
+```
+
+#### PostCSS Configuration
+The `frontend/postcss.config.js` file should contain:
+```javascript
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+```
+
+#### Vite Configuration
+The `frontend/vite.config.ts` file should contain:
+```typescript
+import path from "path";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // ... other aliases
+    },
+  },
+  // ... other configurations
+});
+```
+
+These configurations work together to provide:
+- Modern React development with Vite
+- Utility-first styling with TailwindCSS
+- Proper CSS processing with PostCSS
+- Component library support with Shadcn UI
 
 ## Smart Contract Deployment
 
