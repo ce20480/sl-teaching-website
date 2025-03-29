@@ -9,6 +9,7 @@ import {
   validateFileSize,
 } from "@/middleware/fileValidation";
 import storageRoutes from "@/routes/storage/upload";
+import predictionRoutes from "./routes/prediction";
 
 const app = express();
 
@@ -31,6 +32,8 @@ app.use(
   validateFileType,
   storageRoutes
 );
+
+app.use("/api", predictionRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

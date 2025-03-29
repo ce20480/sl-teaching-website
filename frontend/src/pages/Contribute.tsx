@@ -8,8 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/features/upload/FileUpload";
-import { storageService } from "@/services/api";
-import { ApiError } from "@/services/api/base";
+import { storageApi, ApiError } from "@/lib/services/api";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 
@@ -29,12 +28,9 @@ export default function Contribute() {
       setIsUploading(true);
       setUploadProgress(0);
 
-      const result = await storageService.uploadFile(
-        selectedFile,
-        (progress) => {
-          setUploadProgress(progress);
-        }
-      );
+      const result = await storageApi.uploadFile(selectedFile, (progress) => {
+        setUploadProgress(progress);
+      });
 
       console.log("Upload successful:", result);
       toast.success("File successfully uploaded to Filecoin network!");

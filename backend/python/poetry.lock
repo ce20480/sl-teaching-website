@@ -3069,15 +3069,15 @@ files = [
 
 [[package]]
 name = "sl-detection"
-version = "0.1.2"
+version = "0.1.6"
 description = "SL detection using computer vision and deep learning"
 optional = false
 python-versions = "<=3.12,>=3.9"
 groups = ["main"]
 markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
 files = [
-    {file = "sl_detection-0.1.2-py3-none-any.whl", hash = "sha256:50b301c6521079880399abd43346d6fe943e905390b8d3fdd6bccd14555c9d9e"},
-    {file = "sl_detection-0.1.2.tar.gz", hash = "sha256:ddda36d118271c3e4a5cb28e8cd55a7c93488c202ec59b569a25026068b55e4f"},
+    {file = "sl_detection-0.1.6-py3-none-any.whl", hash = "sha256:981770e86a7850f399cb53dec992827605cf7ff3d7a752b6b38535db3d239525"},
+    {file = "sl_detection-0.1.6.tar.gz", hash = "sha256:119106885ecf8a1a8751ff27327408dd7772c441552dfedbd246e4ebb684e019"},
 ]
 
 [package.dependencies]
@@ -3677,4 +3677,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<=3.12"
-content-hash = "a8937512d998bf84d7fd81c8766cceb453eeb631258b0c717c44948dd4872c82"
+content-hash = "85346be0dca7cc9c68d2b11cd410c3c1d196a8a6737cfd7ee17e0964fa63caf0"

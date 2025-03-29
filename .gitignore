@@ -13,6 +13,7 @@ node_modules/
 /dist/
 **/build/
 **/dist/
+asl/*
 
 # Python
 __pycache__/
