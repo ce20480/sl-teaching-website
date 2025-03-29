@@ -1,13 +1,34 @@
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      buffer: 'buffer',
+      process: 'process/browser',
+      stream: 'stream-browserify',
+      util: 'util',
     },
+  },
+  define: {
+    'process.env': {},
+    global: 'globalThis',
+    'Buffer': ['buffer', 'Buffer'],
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: 'globalThis'
+      }
+    },
+    include: ['buffer', 'process', 'stream-browserify', 'util']
+  },
+  build: {
+    commonjsOptions: {
+      include: [/node_modules/],
+    }
   },
 });

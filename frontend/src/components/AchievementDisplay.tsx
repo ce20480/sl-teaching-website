@@ -14,15 +14,21 @@ interface Achievement {
 export const AchievementDisplay: React.FC = () => {
   const { address, isConnected } = useAccount();
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [contract, setContract] = useState<any>(null);
 
-  // Contract address - should be moved to environment variables
-  const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS || '';
+  // Contract address from environment variables
+  const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS || '';
 
   // Initialize contract
-  const contract = AchievementToken__factory.connect(
-    contractAddress,
-    new ethers.providers.Web3Provider(window.ethereum).getSigner()
-  );
+  useEffect(() => {
+    const initContract = async () => {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = AchievementToken__factory.connect(contractAddress, signer);
+      setContract(contract);
+    };
+    initContract();
+  }, [contractAddress]);
 
   // Read user's achievement count
   const { data: achievementCount } = useContractRead({

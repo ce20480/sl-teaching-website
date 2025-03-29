@@ -13,7 +13,7 @@ const TabBar = () => {
   const location = useLocation();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t backdrop-blur-lg bg-opacity-80">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t-[1px] border-slate-200 backdrop-blur-lg bg-opacity-80">
       <div className="container max-w-4xl mx-auto">
         <div className="flex justify-around items-center h-16">
           {tabs.map((tab) => {
@@ -26,8 +26,8 @@ const TabBar = () => {
                 to={tab.path}
                 className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors ${
                   isActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "text-blue-600"
+                    : "text-slate-500 hover:text-slate-900"
                 }`}
               >
                 <Icon className="h-5 w-5" />

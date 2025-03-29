@@ -122,10 +122,16 @@ npm install
 3. Set up the backend:
 
 ```bash
-cd ../backend
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-pip install -r requirements.txt
+cd backend/python
+poetry install
+poetry shell
+uvicorn main:app --reload
+```
+
+```bash
+cd backend/express
+npm install
+npm run dev
 ```
 
 4. Set up environment variables:
@@ -133,7 +139,7 @@ pip install -r requirements.txt
 Create a `.env` file in the root directory with:
 ```env
 PRIVATE_KEY=your_private_key_here
-ETHERSCAN_API_KEY=your_etherscan_api_key_here
+ETHERSCAN_API_KEY=your_etherscan_api_key
 REACT_APP_WALLET_CONNECT_PROJECT_ID=your_wallet_connect_project_id
 REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
 ```
@@ -144,6 +150,7 @@ REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
@@ -153,11 +160,74 @@ The frontend will be available at `http://localhost:5173`
 
 ```bash
 cd backend
+python -m venv venv
 source venv/bin/activate  # On Windows use: venv\Scripts\activate
+pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
 The backend API will be available at `http://localhost:8000`
+
+3. Start the Akave server (in a new terminal):
+
+```bash
+cd akave
+npm install
+npm run dev
+```
+
+The Akave server will be available at `http://localhost:3000`
+
+4. Start the Express server (in a new terminal):
+
+```bash
+cd express
+npm install
+npm run dev
+```
+
+The Express server will be available at `http://localhost:4000`
+
+### Environment Setup
+
+1. Frontend environment variables (frontend/.env):
+```env
+REACT_APP_WALLET_CONNECT_PROJECT_ID=your_wallet_connect_project_id
+REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
+```
+
+2. Backend environment variables (backend/.env):
+```env
+DATABASE_URL=your_database_url
+JWT_SECRET=your_jwt_secret
+```
+
+3. Akave environment variables (akave/.env):
+```env
+AKAVE_API_KEY=your_akave_api_key
+STORAGE_PATH=your_storage_path
+```
+
+4. Express environment variables (express/.env):
+```env
+PORT=4000
+NODE_ENV=development
+```
+
+### Verifying All Servers
+
+1. Frontend: Visit `http://localhost:5173` - you should see the main application interface
+2. Backend: Visit `http://localhost:8000/docs` - you should see the Swagger API documentation
+3. Akave: Visit `http://localhost:3000/health` - you should see a health check response
+4. Express: Visit `http://localhost:4000/api/health` - you should see a health check response
+
+### Troubleshooting
+
+If any server fails to start:
+1. Check if the required ports are available
+2. Verify all environment variables are set correctly
+3. Ensure all dependencies are installed
+4. Check the server logs for specific error messages
 
 ## Smart Contract Deployment
 
