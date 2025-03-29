@@ -4,47 +4,24 @@ import { config } from "dotenv";
 config();
 
 async function main() {
-  console.log("Deploying ASL Achievement Token...");
+  console.log("Deploying AchievementToken contract...");
 
-  // Get the contract factory
-  const ASLAchievementToken = await ethers.getContractFactory("ASLAchievementToken");
-  
-  // Deploy the contract
-  const achievementToken = await ASLAchievementToken.deploy();
-  
-  // Wait for deployment to complete
+  const AchievementToken = await ethers.getContractFactory("AchievementToken");
+  const achievementToken = await AchievementToken.deploy();
+
   await achievementToken.deployed();
-  
-  console.log("ASL Achievement Token deployed to:", achievementToken.address);
-  
-  // Set initial metadata URIs for achievement types
-  const metadataURIs = {
-    CONTRIBUTOR: "ipfs://Qm...", // Replace with actual IPFS URI
-    EXPERT: "ipfs://Qm...",
-    COMMUNITY: "ipfs://Qm...",
-    INNOVATOR: "ipfs://Qm..."
-  };
 
-  // Update metadata URIs
-  for (const [type, uri] of Object.entries(metadataURIs)) {
-    await achievementToken.updateAchievementMetadata(
-      type,
-      uri
-    );
-    console.log(`Updated metadata URI for ${type}`);
-  }
+  console.log("AchievementToken deployed to:", achievementToken.address);
+  console.log("Transaction hash:", achievementToken.deployTransaction.hash);
 
-  // Grant minter role to the backend service
-  const backendAddress = process.env.BACKEND_ADDRESS;
-  if (backendAddress) {
-    await achievementToken.grantMinterRole(backendAddress);
-    console.log(`Granted minter role to backend at ${backendAddress}`);
-  }
+  // Wait for a few block confirmations
+  await achievementToken.deployTransaction.wait(5);
+  console.log("Contract confirmed on network");
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-}); 
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  }); 
