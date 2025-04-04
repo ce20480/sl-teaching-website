@@ -2,6 +2,15 @@
 node_modules/
 **/node_modules/
 
+# Generated smart contract files
+/artifacts/
+/cache/
+/typechain-types/
+/frontend/src/contracts/types/
+
+# Test output
+/test/coverage/
+
 # Environment variables
 .env
 **/.env

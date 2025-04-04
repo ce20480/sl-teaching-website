@@ -10,32 +10,39 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200
-      }
-    }
+        runs: 200,
+      },
+    },
   },
   networks: {
+    hardhat: {
+      // Local development network
+    },
     filecoin: {
       url: "https://api.node.glif.io/rpc/v1",
-      accounts: process.env.WEB3_PRIVATE_KEY ? [process.env.WEB3_PRIVATE_KEY] : [],
-      chainId: 314
+      accounts: process.env.WEB3_PRIVATE_KEY
+        ? [process.env.WEB3_PRIVATE_KEY]
+        : [],
+      chainId: 314,
     },
     filecoinTestnet: {
       url: "https://api.calibration.node.glif.io/rpc/v1",
-      accounts: process.env.WEB3_PRIVATE_KEY ? [process.env.WEB3_PRIVATE_KEY] : [],
-      chainId: 314159
-    }
+      accounts: process.env.WEB3_PRIVATE_KEY
+        ? [process.env.WEB3_PRIVATE_KEY]
+        : [],
+      chainId: 314159,
+    },
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY
+    apiKey: process.env.ETHERSCAN_API_KEY,
   },
   typechain: {
-    outDir: 'frontend/src/contracts/types',
-    target: 'ethers-v5',
+    outDir: "typechain-types",
+    target: "ethers-v5",
     alwaysGenerateOverloads: false,
-    externalArtifacts: ['externalArtifacts/*.json'],
-    dontOverrideCompile: false
-  }
+    externalArtifacts: ["externalArtifacts/*.json"],
+    dontOverrideCompile: false,
+  },
 };
 
-export default config; 
+export default config;
