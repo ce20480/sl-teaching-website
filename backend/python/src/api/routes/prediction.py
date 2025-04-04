@@ -7,7 +7,7 @@ from ...services.ml.asl_service import ASLService
 from ...core.config import settings
 
 # Initialize the model service with model path
-model_path = settings.model_path
+model_path = settings.MODEL_PATH
 asl_service = ASLService(model_path)
 
 router = APIRouter(prefix="/api/prediction", tags=["prediction"])

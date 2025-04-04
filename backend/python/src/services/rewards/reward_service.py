@@ -122,13 +122,16 @@ class RewardService:
         else:
             return 0  # BEGINNER 
     
-    async def award_xp_for_contribution(self, user_address: str, contribution_quality: float):
+    async def award_xp_for_contribution(self, user_address: str, quality_score: float) -> Dict[str, Any]:
         """
-        Award XP tokens to a user for contributing data
+        Award XP tokens to a user for their contribution
         
         Args:
-            user_address: Ethereum address of the user
-            contribution_quality: Quality score of the contribution (0-1)
+            user_address: User's wallet address
+            quality_score: Quality score of the contribution (0-1)
+            
+        Returns:
+            Dict with transaction details
         """
         try:
             # Get nonce for the transaction

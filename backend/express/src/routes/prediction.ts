@@ -24,7 +24,7 @@ router.post("/predict", async (req, res) => {
 
     // Forward to Python backend
     const response = await axios.post(
-      `${config.pythonApiUrl}/api/prediction/predict`,
+      `${config.pythonApiUrl}/prediction/predict`,
       { landmarks },
       {
         headers: {
@@ -63,7 +63,7 @@ router.post("/contribute", async (req, res) => {
 
     // Forward to Python backend
     const response = await axios.post(
-      `${config.pythonApiUrl}/api/prediction/contribute`,
+      `${config.pythonApiUrl}/prediction/contribute`,
       { landmarks, label },
       {
         headers: {

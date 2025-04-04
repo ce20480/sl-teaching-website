@@ -1,9 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from typing import Dict, Any
 from ..services.storage.akave_sdk import AkaveSDK, AkaveConfig
 from ..services.evaluation.evaluator import ContributionEvaluator
 from ..services.rewards.reward_service import RewardService
 import os
+import uuid
 
 router = APIRouter()
 evaluator = ContributionEvaluator()
@@ -12,8 +13,8 @@ reward_service = RewardService()
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    user_address: str = None,
-    background_tasks: BackgroundTasks = None
+    user_address: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> Dict[str, Any]:
     """
     Handle file upload with evaluation and rewards
@@ -22,18 +23,23 @@ async def upload_file(
         raise HTTPException(400, "User address is required for rewards")
         
     try:
-        # 1. Upload to Akave
+        # 1. Upload to storage
         async with AkaveSDK(AkaveConfig()) as akave:
             upload_result = await akave.upload_file(
                 "contributions",  # bucket name
                 await file.read(),
                 file.filename
             )
-            
-        # 2. Submit for evaluation
-        task_id = await evaluator.submit_for_evaluation(
+        
+        # 2. Create a unique task ID
+        task_id = str(uuid.uuid4())
+        
+        # 3. Submit for evaluation
+        await evaluator.submit_for_evaluation(
+            task_id=task_id,
             file_id=upload_result["fileId"],
             file_type=file.content_type,
+            user_address=user_address,
             metadata={
                 "filename": file.filename,
                 "content_type": file.content_type,
@@ -42,9 +48,9 @@ async def upload_file(
             }
         )
         
-        # 3. Process evaluation in background
+        # 4. Process evaluation in background
         background_tasks.add_task(
-            process_evaluation_and_reward,
+            evaluator.process_evaluation_and_reward,
             task_id,
             user_address,
             upload_result

@@ -10,6 +10,8 @@ node_modules/
 
 # Test output
 /test/coverage/
+test_image.*
+test.*
 
 # Environment variables
 .env

@@ -7,37 +7,35 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      buffer: 'buffer',
-      process: 'process/browser',
-      stream: 'stream-browserify',
-      util: 'util',
+      buffer: "buffer",
+      process: "process/browser",
+      stream: "stream-browserify",
+      util: "util",
     },
   },
   define: {
-    'process.env': {},
-    global: 'globalThis',
-    'Buffer': ['buffer', 'Buffer'],
+    "process.env": {},
+    global: "globalThis",
+    Buffer: ["buffer", "Buffer"],
   },
   optimizeDeps: {
     esbuildOptions: {
       define: {
-        global: 'globalThis'
-      }
+        global: "globalThis",
+      },
     },
-    include: ['buffer', 'process', 'stream-browserify', 'util']
+    include: ["buffer", "process", "stream-browserify", "util"],
   },
   build: {
     commonjsOptions: {
       include: [/node_modules/],
-    }
+    },
   },
   server: {
     proxy: {
-      // Proxy /api/storage requests to Express backend
-      '/api/storage': {
-        target: 'http://localhost:4000',
+      "/api": {
+        target: "http://localhost:4000",
         changeOrigin: true,
-        secure: false,
       },
     },
   },

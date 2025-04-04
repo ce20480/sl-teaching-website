@@ -1,38 +1,39 @@
-import { useEffect, useState } from 'react';
-import { useAccount, useConnect, useDisconnect, useNetwork } from 'wagmi';
-import { InjectedConnector } from 'wagmi/connectors/injected';
-import { WalletConnectConnector } from 'wagmi/connectors/walletConnect';
-import { CoinbaseWalletConnector } from 'wagmi/connectors/coinbaseWallet';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/components/ui/use-toast';
-import { useContractRead, useContractWrite } from 'wagmi';
-import { ASL_ACHIEVEMENT_ABI } from '@/constants/contracts';
-import { ASL_ACHIEVEMENT_ADDRESS } from '@/constants/addresses';
+import { useEffect, useState } from "react";
+import { useAccount, useConnect, useDisconnect, useNetwork } from "wagmi";
+import { InjectedConnector } from "wagmi/connectors/injected";
+import { WalletConnectConnector } from "wagmi/connectors/walletConnect";
+import { CoinbaseWalletConnector } from "wagmi/connectors/coinbaseWallet";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { useContractRead, useContractWrite } from "wagmi";
+import { ASL_ACHIEVEMENT_ABI } from "@/constants/contracts";
+import { ASL_ACHIEVEMENT_ADDRESS } from "@/constants/addresses";
 
 // Filecoin FVM network configuration
 const FILECOIN_NETWORK = {
   id: 314,
-  name: 'Filecoin Mainnet',
-  network: 'filecoin',
+  name: "Filecoin Mainnet",
+  network: "filecoin",
   nativeCurrency: {
-    name: 'Filecoin',
-    symbol: 'FIL',
+    name: "Filecoin",
+    symbol: "FIL",
     decimals: 18,
   },
   rpcUrls: {
-    default: { http: ['https://api.node.glif.io'] },
+    default: { http: ["https://api.node.glif.io"] },
   },
   blockExplorers: {
-    default: { name: 'Filscan', url: 'https://filscan.io' },
+    default: { name: "Filscan", url: "https://filscan.io" },
   },
 };
 
 export function WalletConnect() {
   const { address, isConnected } = useAccount();
-  const { connect, connectors, error, isLoading, pendingConnector } = useConnect({
-    chainId: FILECOIN_NETWORK.id,
-  });
+  const { connect, connectors, error, isLoading, pendingConnector } =
+    useConnect({
+      chainId: FILECOIN_NETWORK.id,
+    });
   const { disconnect } = useDisconnect();
   const { chain } = useNetwork();
   const { toast } = useToast();
@@ -42,7 +43,7 @@ export function WalletConnect() {
   const { data: achievementCount } = useContractRead({
     address: ASL_ACHIEVEMENT_ADDRESS,
     abi: ASL_ACHIEVEMENT_ABI,
-    functionName: 'getUserAchievementCount',
+    functionName: "getUserAchievementCount",
     args: [address],
     enabled: !!address,
   });
@@ -51,16 +52,16 @@ export function WalletConnect() {
   const { write: mintAchievement } = useContractWrite({
     address: ASL_ACHIEVEMENT_ADDRESS,
     abi: ASL_ACHIEVEMENT_ABI,
-    functionName: 'mintAchievement',
+    functionName: "mintAchievement",
   });
 
   // Handle network mismatch
   useEffect(() => {
     if (chain && chain.id !== FILECOIN_NETWORK.id) {
       toast({
-        title: 'Network Mismatch',
-        description: 'Please switch to Filecoin Mainnet to continue.',
-        variant: 'destructive',
+        title: "Network Mismatch",
+        description: "Please switch to Filecoin Mainnet to continue.",
+        variant: "destructive",
       });
     }
   }, [chain, toast]);
@@ -69,9 +70,9 @@ export function WalletConnect() {
   useEffect(() => {
     if (error) {
       toast({
-        title: 'Connection Error',
+        title: "Connection Error",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     }
   }, [error, toast]);
@@ -82,17 +83,17 @@ export function WalletConnect() {
 
     try {
       await mintAchievement({
-        args: [address, 0, 'First Contribution'], // 0 = CONTRIBUTOR type
+        args: [address, 0, "First Contribution"], // 0 = CONTRIBUTOR type
       });
       toast({
-        title: 'Success',
-        description: 'Achievement minted successfully!',
+        title: "Success",
+        description: "Achievement minted successfully!",
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'Failed to mint achievement',
-        variant: 'destructive',
+        title: "Error",
+        description: "Failed to mint achievement",
+        variant: "destructive",
       });
     }
   };
@@ -113,7 +114,7 @@ export function WalletConnect() {
                 className="w-full"
               >
                 {isLoading && connector.uid === pendingConnector?.uid
-                  ? 'Connecting...'
+                  ? "Connecting..."
                   : `Connect ${connector.name}`}
               </Button>
             ))}
@@ -126,18 +127,15 @@ export function WalletConnect() {
                 {address?.slice(0, 6)}...{address?.slice(-4)}
               </span>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Achievement Count:</span>
               <span className="text-sm text-muted-foreground">
-                {achievementCount?.toString() || '0'}
+                {achievementCount?.toString() || "0"}
               </span>
             </div>
 
-            <Button
-              onClick={handleMintAchievement}
-              className="w-full"
-            >
+            <Button onClick={handleMintAchievement} className="w-full">
               Mint Example Achievement
             </Button>
 
@@ -153,4 +151,4 @@ export function WalletConnect() {
       </CardContent>
     </Card>
   );
-} 
+}

@@ -1,8 +1,41 @@
 export class ApiError extends Error {
-  constructor(message: string) {
+  status: number;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "ApiError";
+    this.status = status || 500;
   }
+}
+
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  percentage: number;
+}
+
+export interface UploadResult {
+  success: boolean;
+  message: string;
+  task_id?: string;
+  upload_result?: any;
+}
+
+export interface EvaluationStatus {
+  status: string;
+  score?: number;
+  message?: string;
+  completed?: boolean;
+  reward?: {
+    xp?: {
+      success: boolean;
+      transaction_hash?: string;
+    };
+    achievement?: {
+      success: boolean;
+      transaction_hash?: string;
+    };
+  };
 }
 
 export const storageApi = {
@@ -10,7 +43,7 @@ export const storageApi = {
     file: File,
     onProgress?: (progress: number) => void,
     userAddress?: string
-  ) => {
+  ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
     if (userAddress) {
@@ -62,23 +95,53 @@ export const storageApi = {
       if (error instanceof ApiError) {
         throw error;
       }
-      throw new ApiError(error instanceof Error ? error.message : "Upload failed");
+      throw new ApiError(
+        error instanceof Error ? error.message : "Upload failed"
+      );
     }
   },
 
-  checkEvaluationStatus: async (taskId: string) => {
+  // Add new method for checking evaluation status
+  checkEvaluationStatus: async (taskId: string): Promise<EvaluationStatus> => {
     try {
-      const response = await fetch(`/api/storage/evaluation/${taskId}`);
+      const response = await fetch(`/api/contribution/status/${taskId}`);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new ApiError(error.message || "Failed to check evaluation status");
+        const errorData = await response.json();
+        throw new ApiError(
+          errorData.message || "Failed to check status",
+          response.status
+        );
       }
+
       return await response.json();
     } catch (error) {
       if (error instanceof ApiError) {
         throw error;
       }
-      throw new ApiError("Network error while checking evaluation status");
+      throw new ApiError("Failed to check evaluation status");
     }
-  }
-}; 
+  },
+
+  // Add new method for getting reward history
+  getUserRewards: async (userAddress: string): Promise<any> => {
+    try {
+      const response = await fetch(`/api/contribution/rewards/${userAddress}`);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new ApiError(
+          errorData.message || "Failed to fetch rewards",
+          response.status
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError("Failed to fetch reward history");
+    }
+  },
+};
