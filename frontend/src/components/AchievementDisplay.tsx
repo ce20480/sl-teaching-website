@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { useAccount, useContractRead } from 'wagmi';
-import { AchievementToken__factory } from '../contracts/types/factories/contracts/AchievementToken__factory';
-import { ethers } from 'ethers';
+import React, { useEffect, useState } from "react";
+import { useAccount, useContractRead } from "wagmi";
+import { AchievementToken__factory } from "../contracts/types/factories/contracts/AchievementToken__factory";
+import { ethers } from "ethers";
 
 interface Achievement {
   id: number;
@@ -17,14 +17,17 @@ export const AchievementDisplay: React.FC = () => {
   const [contract, setContract] = useState<any>(null);
 
   // Contract address from environment variables
-  const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS || '';
+  const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS || "";
 
   // Initialize contract
   useEffect(() => {
     const initContract = async () => {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
-      const contract = AchievementToken__factory.connect(contractAddress, signer);
+      const contract = AchievementToken__factory.connect(
+        contractAddress,
+        signer
+      );
       setContract(contract);
     };
     initContract();
@@ -34,7 +37,7 @@ export const AchievementDisplay: React.FC = () => {
   const { data: achievementCount } = useContractRead({
     address: contractAddress as `0x${string}`,
     abi: AchievementToken__factory.abi,
-    functionName: 'getUserAchievementCount',
+    functionName: "getUserAchievementCount",
     args: [address as `0x${string}`],
     enabled: isConnected && !!address,
   });
@@ -43,7 +46,7 @@ export const AchievementDisplay: React.FC = () => {
   const { data: achievementIds } = useContractRead({
     address: contractAddress as `0x${string}`,
     abi: AchievementToken__factory.abi,
-    functionName: 'getUserAchievements',
+    functionName: "getUserAchievements",
     args: [address as `0x${string}`],
     enabled: isConnected && !!address,
   });
@@ -80,7 +83,7 @@ export const AchievementDisplay: React.FC = () => {
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">Your Achievements</h2>
         <div className="text-lg font-semibold text-blue-600">
-          Score: {achievementCount?.toString() || '0'}
+          Score: {achievementCount?.toString() || "0"}
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -89,12 +92,11 @@ export const AchievementDisplay: React.FC = () => {
             key={achievement.id}
             className="p-4 border rounded-lg shadow-md hover:shadow-lg transition-shadow"
           >
-            <h3 className="text-xl font-semibold mb-2">
-              {achievement.type}
-            </h3>
+            <h3 className="text-xl font-semibold mb-2">{achievement.type}</h3>
             <p className="text-gray-600 mb-2">{achievement.description}</p>
             <p className="text-sm text-gray-500">
-              Earned: {new Date(achievement.timestamp * 1000).toLocaleDateString()}
+              Earned:{" "}
+              {new Date(achievement.timestamp * 1000).toLocaleDateString()}
             </p>
             <a
               href={`https://ipfs.io/ipfs/${achievement.ipfsHash}`}
@@ -111,4 +113,4 @@ export const AchievementDisplay: React.FC = () => {
   );
 };
 
-export default AchievementDisplay; 
+export default AchievementDisplay;

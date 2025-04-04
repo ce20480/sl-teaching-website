@@ -28,11 +28,11 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log(
       "Forwarding to Python backend:",
-      `${config.pythonApiUrl}/api/storage/upload`
+      `${config.pythonApiUrl}/storage/upload`
     );
 
     const response = await axios.post(
-      `${config.pythonApiUrl}/api/storage/upload`,
+      `${config.pythonApiUrl}/storage/upload`,
       formData,
       {
         headers: {
