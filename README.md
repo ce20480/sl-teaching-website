@@ -41,6 +41,7 @@ Lighthouse: Simple, reliable data handling.
 Lilypad Compute: A working Lilypad module now executes our translation model using decentralized compute resources.
 
 Achievement Token System: Implemented ERC4973 Soulbound Tokens with:
+
 - Achievement tiers (Beginner, Intermediate, Advanced, Expert, Master)
 - IPFS metadata storage for achievement details
 - Gas-efficient implementation for Filecoin FVM
@@ -125,18 +126,23 @@ npm run dev
 The frontend will be available at `http://localhost:5173`
 
 2. Starting the backend
+
 ### Python
+
 ```bash
 cd backend/python
 poetry install
 poetry run uvicorn main:app --reload
 ```
+
 ### Express
+
 ```bash
 cd backend/express
 npm install
 npm run dev
 ```
+
 The Express server will be available at `http://localhost:4000`
 
 The backend API will be available at `http://localhost:8000`
@@ -151,28 +157,31 @@ npm run dev
 
 The Akave server will be available at `http://localhost:3000`
 
-
 ### Environment Setup
 
 1. Frontend environment variables (frontend/.env):
+
 ```env
 REACT_APP_WALLET_CONNECT_PROJECT_ID=your_wallet_connect_project_id
 REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
 ```
 
 2. Backend environment variables (backend/.env):
+
 ```env
 DATABASE_URL=your_database_url
 JWT_SECRET=your_jwt_secret
 ```
 
 3. Akave environment variables (akave/.env):
+
 ```env
 AKAVE_API_KEY=your_akave_api_key
 STORAGE_PATH=your_storage_path
 ```
 
 4. Express environment variables (express/.env):
+
 ```env
 PORT=4000
 NODE_ENV=development
@@ -188,6 +197,7 @@ NODE_ENV=development
 ### Troubleshooting
 
 If any server fails to start:
+
 1. Check if the required ports are available
 2. Verify all environment variables are set correctly
 3. Ensure all dependencies are installed
@@ -196,15 +206,14 @@ If any server fails to start:
 ### Configuration Details
 
 #### TailwindCSS Configuration
+
 The `frontend/tailwind.config.js` file should contain:
+
 ```javascript
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: [
-    "./src/**/*.{js,jsx,ts,tsx}",
-    "./index.html"
-  ],
+  content: ["./src/**/*.{js,jsx,ts,tsx}", "./index.html"],
   theme: {
     // Theme configuration including colors, animations, etc.
     extend: {
@@ -215,26 +224,30 @@ module.exports = {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         // ... other color configurations
-      }
-    }
+      },
+    },
   },
-  plugins: [require("tailwindcss-animate")]
-}
+  plugins: [require("tailwindcss-animate")],
+};
 ```
 
 #### PostCSS Configuration
+
 The `frontend/postcss.config.js` file should contain:
+
 ```javascript
 export default {
   plugins: {
     tailwindcss: {},
     autoprefixer: {},
   },
-}
+};
 ```
 
 #### Vite Configuration
+
 The `frontend/vite.config.ts` file should contain:
+
 ```typescript
 import path from "path";
 import { defineConfig } from "vite";
@@ -253,27 +266,11 @@ export default defineConfig({
 ```
 
 These configurations work together to provide:
+
 - Modern React development with Vite
 - Utility-first styling with TailwindCSS
 - Proper CSS processing with PostCSS
 - Component library support with Shadcn UI
-
-## Smart Contract Deployment
-
-1. Compile the contracts:
-```bash
-npm run compile
-```
-
-2. Deploy to Filecoin testnet:
-```bash
-npm run deploy:testnet
-```
-
-3. Deploy to Filecoin mainnet:
-```bash
-npm run deploy
-```
 
 ## Development
 
@@ -289,12 +286,37 @@ npm run deploy
 - Run tests: `pytest`
 - Format code: `black .`
 
-### Smart Contract Development
+## Build and Generated Files
 
-- Compile contracts: `npm run compile`
-- Run tests: `npm run test`
-- Deploy to testnet: `npm run deploy:testnet`
-- Deploy to mainnet: `npm run deploy`
+After cloning the repository, you'll need to generate several files before you can start development:
+
+### Smart Contract Files
+
+1. Compile the contracts to generate artifacts:
+
+```bash
+npm run compile
+```
+
+2. Generate TypeScript types for contracts:
+
+```bash
+npm run generate-types
+```
+
+3. Extract ABIs for frontend use:
+
+```bash
+npm run extract-abis
+```
+
+These commands will create:
+
+- `artifacts/` - Compiled contract artifacts
+- `cache/` - Solidity compilation cache
+- `typechain-types/` - TypeScript bindings for contracts
+- `frontend/src/contracts/types/` - Frontend contract types
+- `contracts/*.json` - Contract ABIs
 
 ## Project Structure
 
@@ -342,3 +364,160 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Filecoin Foundation for supporting decentralized storage
 - OpenZeppelin for secure smart contract implementations
 
+## Architecture
+
+```
+asl-teaching-website/
+├── frontend/          # React + Vite frontend
+├── backend/
+│   ├── express/      # Express middleware server
+│   └── python/       # FastAPI + ML backend
+└── docs/             # Additional documentation
+```
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.11+
+- Poetry
+- Docker Desktop
+- Akave API credentials
+
+### Environment Setup
+
+1. Clone repository:
+
+```bash
+git clone https://github.com/yourusername/asl-teaching-website.git
+cd asl-teaching-website
+```
+
+2. Configure environment:
+
+```bash
+# Backend Python
+cd backend/python
+cp .env.example .env
+# Edit .env with your Akave credentials
+
+# Frontend
+cd ../../frontend
+cp .env.example .env
+```
+
+### Starting Services
+
+1. Start Akave Storage (required for file operations):
+
+```bash
+cd backend/python
+poetry run akave start
+```
+
+2. Start Python Backend:
+
+```bash
+cd backend/python
+poetry install
+poetry run dev
+```
+
+3. Start Express Middleware:
+
+```bash
+cd backend/express
+npm install
+npm run dev
+```
+
+4. Start Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Service Architecture
+
+| Service    | Port | Description                  |
+| ---------- | ---- | ---------------------------- |
+| Frontend   | 5173 | Vite + React UI              |
+| Express    | 3000 | Middleware & request routing |
+| FastAPI    | 8000 | ML & storage backend         |
+| Akave Link | 4000 | Filecoin storage integration |
+
+## Development Notes
+
+### Port Conflicts
+
+```bash
+# Check ports in use
+lsof -i :8000
+lsof -i :3000
+lsof -i :4000
+
+# Kill process on specific port
+lsof -ti :8000 | xargs kill -9
+```
+
+### File Upload Constraints
+
+- Minimum size: 127 bytes
+- Maximum size: 100MB
+- Supported types: Images, Video, Text
+
+### Testing
+
+```bash
+# Frontend tests
+cd frontend
+npm test
+
+# Python backend tests
+cd backend/python
+poetry run test
+
+# Express tests
+cd backend/express
+npm test
+```
+
+## Additional Documentation
+
+- [Frontend README](./frontend/README.md)
+- [Express Server README](./backend/express/README.md)
+- [Python Backend README](./backend/python/README.md)
+- [API Documentation](./docs/api.md)
+
+## Common Issues
+
+### Multiple Python Servers
+
+When using `poetry run dev`, two processes are normal:
+
+- Watcher process for auto-reload
+- Application server process
+
+### Docker Container Management
+
+```bash
+# View container logs
+docker logs akavelink
+
+# Restart container
+poetry run akave restart
+
+# Stop container
+poetry run akave stop
+```
+
+### CORS Issues
+
+Default allowed origins:
+
+- `http://localhost:5173` (Frontend)
+- `http://localhost:3000` (Express)
+- `http://localhost:8000` (FastAPI)

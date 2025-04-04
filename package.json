@@ -7,14 +7,16 @@
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts --network filecoin",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network filecoinTestnet",
-    "generate-types": "ts-node scripts/generate-types.ts"
+    "generate-types": "ts-node scripts/generate-types.ts",
+    "extract-abis": "ts-node scripts/extract-abis.ts",
+    "prepare-deploy": "npm run compile && npm run extract-abis && npm run generate-types"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.0",
     "@web3modal/ethereum": "^2.7.1",
     "@web3modal/react": "^2.7.1",
     "buffer": "^6.0.3",
-    "ethers": "^5.7.2",
+    "ethers": "^5.8.0",
     "ipfs-http-client": "^60.0.1",
     "process": "^0.11.10",
     "react": "^18.2.0",
@@ -28,13 +30,17 @@
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@typechain/ethers-v5": "^10.2.1",
     "@typechain/hardhat": "^6.1.6",
-    "@types/node": "^18.15.11",
+    "@types/chai": "^5.2.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^18.19.86",
     "@types/react": "^18.0.33",
     "@types/react-dom": "^18.0.11",
-    "dotenv": "^16.0.3",
+    "chai": "^5.2.0",
+    "dotenv": "^16.4.7",
     "hardhat": "^2.14.0",
-    "ts-node": "^10.9.1",
-    "typechain": "^8.3.0",
+    "mocha": "^11.1.0",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
     "typescript": "^5.0.4"
   }
 }

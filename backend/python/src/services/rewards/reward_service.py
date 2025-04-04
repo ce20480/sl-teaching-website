@@ -7,23 +7,33 @@ import os
 from ..evaluation.evaluator import EvaluationResult, EvaluationStatus
 
 class RewardService:
-    """Service to handle achievement token rewards for contributions"""
+    """Service to handle achievement token and XP rewards for contributions"""
     
     def __init__(self):
         # Initialize Web3 connection (using environment variables)
         self.w3 = Web3(Web3.HTTPProvider(os.getenv('WEB3_PROVIDER_URL')))
-        self.contract_address = os.getenv('ACHIEVEMENT_CONTRACT_ADDRESS')
+        self.achievement_contract_address = os.getenv('ACHIEVEMENT_CONTRACT_ADDRESS')
+        self.xp_contract_address = os.getenv('XP_TOKEN_CONTRACT_ADDRESS')
         self.private_key = os.getenv('REWARD_SERVICE_PRIVATE_KEY')
         
-        # Load contract ABI
+        # Load contract ABIs
         with open('contracts/AchievementToken.json') as f:
             contract_json = json.load(f)
-            self.contract_abi = contract_json['abi']
+            self.achievement_contract_abi = contract_json['abi']
         
-        # Initialize contract
-        self.contract = self.w3.eth.contract(
-            address=self.contract_address,
-            abi=self.contract_abi
+        with open('contracts/ASLExperienceToken.json') as f:
+            contract_json = json.load(f)
+            self.xp_contract_abi = contract_json['abi']
+        
+        # Initialize contracts
+        self.achievement_contract = self.w3.eth.contract(
+            address=self.achievement_contract_address,
+            abi=self.achievement_contract_abi
+        )
+        
+        self.xp_contract = self.w3.eth.contract(
+            address=self.xp_contract_address,
+            abi=self.xp_contract_abi
         )
         
         # Initialize account
@@ -55,7 +65,7 @@ class RewardService:
             nonce = self.w3.eth.get_transaction_count(self.account.address)
             
             # Prepare contract call
-            tx = self.contract.functions.mintAchievement(
+            tx = self.achievement_contract.functions.mintAchievement(
                 user_address,
                 achievement_type,
                 contribution_metadata.get('ipfs_hash', ''),
@@ -111,3 +121,50 @@ class RewardService:
             return 1  # INTERMEDIATE
         else:
             return 0  # BEGINNER 
+    
+    async def award_xp_for_contribution(self, user_address: str, contribution_quality: float):
+        """
+        Award XP tokens to a user for contributing data
+        
+        Args:
+            user_address: Ethereum address of the user
+            contribution_quality: Quality score of the contribution (0-1)
+        """
+        try:
+            # Get nonce for the transaction
+            nonce = self.w3.eth.get_transaction_count(self.account.address)
+            
+            # Determine activity type (1 = DATASET_CONTRIBUTION)
+            activity_type = 1
+            
+            # Build the transaction
+            tx = self.xp_contract.functions.awardXP(
+                user_address,
+                activity_type
+            ).build_transaction({
+                'chainId': int(os.getenv('CHAIN_ID', '314159')),  # Default to Filecoin testnet
+                'gas': 200000,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': nonce,
+            })
+            
+            # Sign and send the transaction
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            # Wait for transaction receipt
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            return {
+                "success": True,
+                "transaction_hash": receipt.transactionHash.hex(),
+                "activity_type": "Dataset Contribution",
+                "xp_awarded": True
+            }
+            
+        except Exception as e:
+            print(f"Error awarding XP: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            } 
