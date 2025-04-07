@@ -1,27 +1,38 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from dotenv import load_dotenv
-from typing import Optional
 from pydantic import Field
 
-# Load .env file once at startup
-load_dotenv(Path(__file__).parent.parent.parent / ".env")
+# Load .env file once at startup, but because I am using pydantic it does the loading all for me
+# from dotenv import load_dotenv
+# load_dotenv(Path(__file__).parents[2] / ".env")
 
 class Settings(BaseSettings):
-    WEB3_PRIVATE_KEY: str
+    # Keep existing fields
+    WEB3_PRIVATE_KEY: str = Field(default="")
     NODE_ADDRESS: str = "connect.akave.ai:5500"
     DEFAULT_BUCKET: str = "asl-training-data"
     MODEL_PATH: str = Field(default="./models/asl_model.pkl")
-    WEB3_PROVIDER_URL: str = Field(default="http://localhost:8545")
-    ACHIEVEMENT_CONTRACT_ADDRESS: str = Field(default="")
-    XP_TOKEN_CONTRACT_ADDRESS: str = Field(default="")
-    REWARD_SERVICE_PRIVATE_KEY: str = Field(default="your_private_key_here")
+    WEB3_PROVIDER_URL: str = Field(default="https://api.calibration.node.glif.io/rpc/v1")
+    
+    # Add missing fields that exist in .env
+    REWARD_SERVICE_PRIVATE_KEY: str = Field(default="")
+    DEPLOYER_ADDRESS: str = Field(default="")
+    TFIL_ACHIEVEMENT_CONTRACT_ADDRESS: str = Field(default="")
+    TFIL_XP_TOKEN_CONTRACT_ADDRESS: str = Field(default="")
+    TFIL_ACHIEVEMENT_HASH: str = Field(default="")
+    CHAIN_ID: int = Field(default=314159)
+
+    # Add blockchain configuration settings
+    FILECOIN_TESTNET_RPC_URL: str = Field(..., env="FILECOIN_TESTNET_RPC_URL")
+    BLOCKCHAIN_PRIVATE_KEY: str = Field(..., env="BLOCKCHAIN_PRIVATE_KEY")
+    ERC20_XP_CONTRACT_ADDRESS: str = Field(default="0xB65A3b71b5856a70Fd55E5926d4a22931Bd048D5", env="ERC20_XP_CONTRACT_ADDRESS")
 
     class Config:
-        env_file = Path(__file__).parent.parent.parent / ".env"
+        env_file = Path(__file__).parents[2] / ".env"
         env_file_encoding = 'utf-8'
         case_sensitive = True
+        extra = 'allow'  # Temporarily allow extra fields during transition
 
 @lru_cache()
 def get_settings() -> Settings:

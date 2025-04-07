@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import numpy as np
 import os
 from ...services.ml.asl_service import ASLService
@@ -10,13 +10,13 @@ from ...core.config import settings
 model_path = settings.MODEL_PATH
 asl_service = ASLService(model_path)
 
-router = APIRouter(prefix="/api/prediction", tags=["prediction"])
+router = APIRouter(prefix="/prediction", tags=["prediction"])
 
 class LandmarkRequest(BaseModel):
     landmarks: List[float]
 
 class LabeledLandmarkRequest(BaseModel):
-    landmarks: List[float]
+    landmarks: List[Dict[str, float]]
     label: str
 
 class PredictionResponse(BaseModel):
@@ -41,12 +41,12 @@ async def predict_sign(request: LandmarkRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/contribute")
-async def contribute_landmarks(request: LabeledLandmarkRequest):
+async def contribute_landmarks(request: LabeledLandmarkRequest) -> Dict[str, Any]:
     """
     Store landmarks with label for model training
     """
     try:
-        success = asl_service.store_contribution(request.landmarks, request.label)
+        success = await asl_service.store_contribution(request.landmarks, request.label)
         
         if not success:
             raise HTTPException(status_code=400, detail="Failed to store contribution")

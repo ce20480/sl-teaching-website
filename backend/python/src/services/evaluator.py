@@ -9,7 +9,6 @@ import random
 import time
 import uuid
 from pydantic import BaseModel
-from ..rewards.reward_service import RewardService
 
 class EvaluationStatus(str, Enum):
     PENDING = "pending"
@@ -39,7 +38,6 @@ class ContributionEvaluator:
         self.processing_queue = asyncio.Queue()
         self._is_processing = False
         self.evaluations = {}
-        self.reward_service = RewardService()
     
     async def start_processing(self):
         """Start the background processing loop"""
@@ -98,6 +96,9 @@ class ContributionEvaluator:
         Process a single evaluation task.
         This is a placeholder implementation that will be replaced with actual AI evaluation.
         """
+        from ..rewards.reward_service import RewardService  # Lazy import
+        reward_service = RewardService()
+        
         # Simulate processing time
         await asyncio.sleep(2)
         
@@ -187,8 +188,11 @@ class ContributionEvaluator:
             self.evaluations[task_id].score = quality_score
             
             if is_approved:
+                from ..rewards.reward_service import RewardService  # Lazy import
+                reward_service = RewardService()
+                
                 # Award XP for contribution
-                xp_result = await self.reward_service.award_xp_for_contribution(
+                xp_result = await reward_service.award_xp_for_contribution(
                     user_address, 
                     quality_score
                 )
@@ -197,7 +201,7 @@ class ContributionEvaluator:
                 achievement_result = None
                 if quality_score >= 0.85:
                     achievement_type = 0  # BEGINNER type for first contributions
-                    achievement_result = await self.reward_service.mint_achievement(
+                    achievement_result = await reward_service.mint_achievement(
                         user_address,
                         achievement_type,
                         f"Quality ASL Training Data Contribution",
@@ -217,3 +221,5 @@ class ContributionEvaluator:
                 self.evaluations[task_id].status = EvaluationStatus.REJECTED
                 self.evaluations[task_id].message = "Contribution did not meet quality standards"
                 self.evaluations[task_id].completed = True 
+        except Exception as e:
+            print(e)
