@@ -1,6 +1,11 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import storage, prediction, rewards, evaluation, blockchain_routes
+from .utils.logging_config import setup_logging
+
+# Initialize logging
+setup_logging(log_level=logging.INFO)
 
 app = FastAPI(title="ASL Teaching API", description="API for ASL teaching application")
 

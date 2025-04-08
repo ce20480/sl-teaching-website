@@ -40,11 +40,40 @@ class BlockchainService:
         except (FileNotFoundError, ValueError) as e:
             # If contract not in registry, use standard ABI
             if name == "erc20_xp":
-                return self.w3.eth.contract(
-                    address=settings.ERC20_XP_CONTRACT_ADDRESS,
-                    abi=self._get_standard_erc20_abi()
-                )
+                # Try to load ABI from the contract JSON file first
+                try:
+                    abi = self._load_abi_from_file("ASLExperienceToken.json")
+                    return self.w3.eth.contract(
+                        address=settings.ERC20_XP_CONTRACT_ADDRESS,
+                        abi=abi
+                    )
+                except Exception as abi_error:
+                    # Fall back to minimal ABI if file loading fails
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to load ABI from file: {str(abi_error)}. Using minimal ABI.")
+                    return self.w3.eth.contract(
+                        address=settings.ERC20_XP_CONTRACT_ADDRESS,
+                        abi=self._get_standard_erc20_abi()
+                    )
             raise e
+            
+    def _load_abi_from_file(self, filename: str):
+        """Load ABI from a contract JSON file"""
+        import os
+        import json
+        
+        # Construct path to the contract JSON file
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+        contract_path = os.path.join(base_dir, 'contracts', filename)
+        
+        # Load the contract JSON
+        with open(contract_path, 'r') as f:
+            contract_json = json.load(f)
+        
+        # Extract the ABI
+        if isinstance(contract_json, dict) and 'abi' in contract_json:
+            return contract_json['abi']
+        return contract_json  # Assume the JSON itself is the ABI list
             
     def _get_standard_erc20_abi(self):
         """Return a minimal ERC20 ABI with mint function"""

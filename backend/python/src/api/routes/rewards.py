@@ -16,7 +16,8 @@ async def award_xp(
     address: str,
     activity_type: ActivityType = Query(ActivityType.DATASET_CONTRIBUTION, description="Type of activity"),
     background_tasks: BackgroundTasks = None,
-    xp_service: XpRewardService = Depends(get_xp_reward_service)
+    xp_service: XpRewardService = Depends(get_xp_reward_service),
+    max_retries: int = 3
 ):
     """Award XP based on predefined activity type"""
     # Use background task for fire-and-forget operation
@@ -27,42 +28,141 @@ async def award_xp(
         
         # Get current balance before the transaction is processed
         try:
-            result = await asyncio.to_thread(xp_service.award_xp, address, activity_type)
-            # current_balance = await asyncio.to_thread(xp_service.get_token_balance, address)
-            return {
-                "status": "processing", 
-                "message": "XP award initiated - check transaction status endpoint for confirmation", 
-                "address": address, 
-                "activity_type": activity_type.name,
-                # "current_balance": current_balance,
-                "result": result,
-                "transaction_status": "pending",
-                "check_status_at": f"/rewards/xp/transactions/{address}"
-            }
+            # Try to execute with automatic retry for nonce errors
+            retry_count = 0
+            result = None
+            last_error = None
+            
+            while retry_count <= max_retries:
+                try:
+                    result = await asyncio.to_thread(xp_service.award_xp, address, activity_type)
+                    
+                    # Check if we got a nonce error that needs retry
+                    if isinstance(result, dict) and result.get('status') == 'error' and result.get('error_category') == 'nonce_too_low':
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            # Wait a bit before retrying (exponential backoff)
+                            await asyncio.sleep(0.5 * (2 ** retry_count))
+                            continue
+                    
+                    # If we got a rate limit error, wait longer and retry
+                    if isinstance(result, dict) and result.get('error_category') == 'rate_limited':
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            # Wait longer for rate limit errors
+                            await asyncio.sleep(2 * (2 ** retry_count))
+                            continue
+                    
+                    # If we get here, either the transaction succeeded or we got a different error
+                    break
+                    
+                except Exception as e:
+                    last_error = str(e)
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        # Wait a bit before retrying
+                        await asyncio.sleep(0.5 * (2 ** retry_count))
+                    else:
+                        break
+            
+            # If we have a result, return it
+            if result:
+                return {
+                    "status": "processing", 
+                    "message": "XP award initiated - check transaction status endpoint for confirmation", 
+                    "address": address, 
+                    "activity_type": activity_type.name,
+                    "result": result,
+                    "transaction_status": "pending",
+                    "check_status_at": f"/rewards/xp/transactions/{address}",
+                    "retries": retry_count
+                }
+            else:
+                # If we don't have a result, return the last error
+                return {
+                    "error": last_error,
+                    "status": "error", 
+                    "message": f"XP award failed after {retry_count} retries", 
+                    "address": address, 
+                    "activity_type": activity_type.name,
+                    "transaction_status": "failed",
+                    "check_status_at": f"/rewards/xp/transactions/{address}"
+                }
         except Exception as e:
             # If we can't get the balance, still return a response
             return {
                 "error": str(e),
-                "status": "processing", 
-                "message": "XP award initiated, but couldn't fetch current balance - check transaction status endpoint", 
+                "status": "error", 
+                "message": "XP award failed with an unexpected error", 
                 "address": address, 
                 "activity_type": activity_type.name,
-                "transaction_status": "pending",
+                "transaction_status": "failed",
                 "check_status_at": f"/rewards/xp/transactions/{address}"
             }
     else:
         # Run synchronously in a thread pool to not block the event loop
-        result = await asyncio.to_thread(xp_service.award_xp, address, activity_type)
+        retry_count = 0
+        result = None
+        last_error = None
+        
+        while retry_count <= max_retries:
+            try:
+                result = await asyncio.to_thread(xp_service.award_xp, address, activity_type)
+                
+                # Check if we got a nonce error that needs retry
+                if isinstance(result, dict) and result.get('status') == 'error' and result.get('error_category') == 'nonce_too_low':
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        # Wait a bit before retrying (exponential backoff)
+                        await asyncio.sleep(0.5 * (2 ** retry_count))
+                        continue
+                
+                # If we got a rate limit error, wait longer and retry
+                if isinstance(result, dict) and result.get('error_category') == 'rate_limited':
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        # Wait longer for rate limit errors
+                        await asyncio.sleep(2 * (2 ** retry_count))
+                        continue
+                
+                # If we get here, either the transaction succeeded or we got a different error
+                break
+                
+            except Exception as e:
+                last_error = str(e)
+                retry_count += 1
+                if retry_count <= max_retries:
+                    # Wait a bit before retrying
+                    await asyncio.sleep(0.5 * (2 ** retry_count))
+                else:
+                    break
+        
+        # If we don't have a result, return the last error
+        if not result:
+            return {
+                "error": last_error,
+                "status": "error", 
+                "message": f"XP award failed after {retry_count} retries", 
+                "address": address, 
+                "activity_type": activity_type.name,
+                "transaction_status": "failed",
+                "retries": retry_count
+            }
+        
         # Get updated balance after the transaction
         try:
             current_balance = await asyncio.to_thread(xp_service.get_token_balance, address)
-            result["current_balance"] = current_balance
-            # Add a link to check transaction status
-            if 'tx_hash' in result:
-                result["check_status_at"] = f"/rewards/xp/transaction/{result['tx_hash']}"
+            if isinstance(result, dict):
+                result["current_balance"] = current_balance
+                # Add a link to check transaction status
+                if 'tx_hash' in result:
+                    result["check_status_at"] = f"/rewards/xp/transaction/{result['tx_hash']}"
+                result["retries"] = retry_count
         except Exception:
             # If we can't get the balance, just return the original result
-            pass
+            if isinstance(result, dict):
+                result["retries"] = retry_count
+        
         return result
 
 @router.post("/xp/award-custom/{address}")
