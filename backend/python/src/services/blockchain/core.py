@@ -61,15 +61,40 @@ class BlockchainService:
         """Load ABI from a contract JSON file"""
         import os
         import json
+        import logging
         
-        # Construct path to the contract JSON file
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-        contract_path = os.path.join(base_dir, 'contracts', filename)
+        logger = logging.getLogger(__name__)
         
-        # Load the contract JSON
-        with open(contract_path, 'r') as f:
-            contract_json = json.load(f)
+        # Try multiple possible locations for the contract file
+        possible_paths = [
+            # Root project directory
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), 'contracts', filename),
+            # One level up from backend
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))), 'contracts', filename),
+            # Inside backend directory
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), 'contracts', filename),
+            # Current directory
+            os.path.join(os.path.dirname(__file__), filename)
+        ]
         
+        # Try each path until we find the file
+        contract_json = None
+        for path in possible_paths:
+            try:
+                logger.info(f"Trying to load ABI from: {path}")
+                with open(path, 'r') as f:
+                    contract_json = json.load(f)
+                    logger.info(f"Successfully loaded ABI from: {path}")
+                    break
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                logger.warning(f"Error loading ABI from {path}: {str(e)}")
+                continue
+        
+        if contract_json is None:
+            raise FileNotFoundError(f"Could not find {filename} in any of the expected locations")
+            
         # Extract the ABI
         if isinstance(contract_json, dict) and 'abi' in contract_json:
             return contract_json['abi']
