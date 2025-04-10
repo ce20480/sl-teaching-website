@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAccount, useContractRead } from "wagmi";
-import { AchievementToken__factory } from "../contracts/types/factories/contracts/AchievementToken__factory";
+import { AchievementToken__factory } from "../types/contracts/types/factories/contracts/AchievementToken__factory";
 import { ethers } from "ethers";
 
 interface Achievement {

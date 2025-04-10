@@ -96,9 +96,6 @@ class ContributionEvaluator:
         Process a single evaluation task.
         This is a placeholder implementation that will be replaced with actual AI evaluation.
         """
-        from ..rewards.reward_service import RewardService  # Lazy import
-        reward_service = RewardService()
-        
         # Simulate processing time
         await asyncio.sleep(2)
         
@@ -188,8 +185,8 @@ class ContributionEvaluator:
             self.evaluations[task_id].score = quality_score
             
             if is_approved:
-                from ..rewards.reward_service import RewardService  # Lazy import
-                reward_service = RewardService()
+                from .reward.xp_reward import XpRewardService  # Lazy import
+                reward_service = XpRewardService()
                 
                 # Award XP for contribution
                 xp_result = await reward_service.award_xp_for_contribution(

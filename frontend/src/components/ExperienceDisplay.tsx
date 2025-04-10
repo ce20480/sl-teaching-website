@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useAccount, useContractRead } from "wagmi";
 import { formatUnits } from "ethers/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { ASLExperienceToken__factory } from "../contracts/types";
+import { ASLExperienceToken__factory } from "../types/contracts/types/factories/contracts/ASLExperienceToken__factory";
 
 interface XPActivity {
   amount: string;

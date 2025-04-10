@@ -13,8 +13,8 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from services.blockchain.core import get_blockchain_service
-from services.reward.xp_reward_v2 import XpRewardServiceV2, get_xp_reward_service_v2, ActivityType
-from services.reward.achievement_reward_v2 import AchievementRewardServiceV2, get_achievement_reward_service_v2, AchievementType
+from backend.python.src.services.reward.xp_reward import XpRewardServiceV2, get_xp_reward_service_v2, ActivityType
+from backend.python.src.services.reward.achievement_reward import AchievementRewardServiceV2, get_achievement_reward_service_v2, AchievementType
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

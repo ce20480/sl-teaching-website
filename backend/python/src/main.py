@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.routes import storage, prediction, rewards, rewards_v2, evaluation, blockchain_routes
+from .api.routes import storage, prediction, rewards, evaluation
 from .utils.logging_config import setup_logging
 
 # Initialize logging
@@ -27,9 +27,7 @@ app.add_middleware(
 app.include_router(storage.router, prefix="/api")
 app.include_router(prediction.router, prefix="/api")
 app.include_router(rewards.router, prefix="/api")
-app.include_router(rewards_v2.router, prefix="/api")  # New V2 rewards router
 app.include_router(evaluation.router, prefix="/api")
-app.include_router(blockchain_routes.router, prefix="/api")
 
 @app.get("/health")
 async def health_check():

@@ -11,6 +11,7 @@ import {
 import storageRoutes from "@/routes/storage/upload";
 import predictionRoutes from "@/routes/prediction";
 import contributionRoutes from "@/routes/storage/contribution";
+import evaluationRoutes from "@/routes/evaluation";
 
 const app = express();
 
@@ -36,7 +37,7 @@ app.use(
 
 app.use("/api", predictionRoutes);
 app.use("/api/contribution", contributionRoutes);
-
+app.use("/api/evaluation", evaluationRoutes);
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });

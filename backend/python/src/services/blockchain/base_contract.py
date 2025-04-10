@@ -5,12 +5,12 @@ This module provides a base class for services that interact with blockchain con
 import logging
 import time
 import functools
-from typing import Any, Dict, Optional, Tuple, Union, Callable, TypeVar, cast
+from typing import Any, Dict, Optional, Tuple, Callable, TypeVar, cast
 
 from web3 import Web3
 from web3.contract import Contract
 from web3.exceptions import ContractLogicError
-from web3.types import TxParams, TxReceipt, Wei
+from web3.types import TxParams
 
 from ...core.config import settings
 from .nonce_manager import NonceManager
