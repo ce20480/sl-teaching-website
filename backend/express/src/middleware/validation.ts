@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 
+// Basic middleware for all requests
 export const validateRequest = (
   req: Request,
   res: Response,
@@ -10,4 +11,13 @@ export const validateRequest = (
     return res.status(400).json({ error: "Content-Type header is required" });
   }
   next();
+};
+
+// Schema-specific validation for routes
+export const validateRequestSchema = (schema: string) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    // TODO: Implement schema validation logic
+    console.log(`Validating request against schema: ${schema}`);
+    next();
+  };
 };

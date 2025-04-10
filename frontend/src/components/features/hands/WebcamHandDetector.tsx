@@ -24,7 +24,13 @@ export function WebcamHandDetector({
   const [results, setResults] = useState<HandLandmarkerResult | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Add debug console log
+  useEffect(() => {
+    console.log("WebcamHandDetector isActive changed:", isActive);
+  }, [isActive]);
+
   const handleStreamReady = useCallback((video: HTMLVideoElement) => {
+    console.log("Stream ready, video element received");
     videoRef.current = video;
     setIsLoading(false);
   }, []);
@@ -48,6 +54,7 @@ export function WebcamHandDetector({
   // Reset when component becomes inactive
   useEffect(() => {
     if (!isActive) {
+      console.log("Resetting WebcamHandDetector state");
       setResults(null);
       setIsLoading(true); // Reset loading state for next activation
       videoRef.current = null;
@@ -56,6 +63,7 @@ export function WebcamHandDetector({
 
   // Handle errors from child components
   const handleError = useCallback((errorMessage: string) => {
+    console.error("WebcamHandDetector error:", errorMessage);
     setError(errorMessage);
     setIsLoading(false);
   }, []);
@@ -63,7 +71,11 @@ export function WebcamHandDetector({
   return (
     <div className={`relative ${className}`}>
       {isActive && (
-        <WebcamManager onStreamReady={handleStreamReady} isActive={isActive} />
+        <WebcamManager
+          onStreamReady={handleStreamReady}
+          isActive={isActive}
+          onError={handleError}
+        />
       )}
 
       {videoRef.current && !isLoading && isActive && (
@@ -86,13 +98,22 @@ export function WebcamHandDetector({
 
       {isLoading && isActive && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <Loader2 className="w-8 h-8 animate-spin text-white" />
+          <div className="flex flex-col items-center">
+            <Loader2 className="w-8 h-8 animate-spin text-white mb-2" />
+            <p className="text-white text-sm">Starting camera...</p>
+          </div>
         </div>
       )}
 
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <p className="text-red-500">Error: {error}</p>
+          <div className="bg-white p-4 rounded-md max-w-md">
+            <p className="text-red-500 font-medium">Camera Error</p>
+            <p className="text-sm mt-1">{error}</p>
+            <p className="text-xs mt-2">
+              Please make sure you've granted camera permissions and try again.
+            </p>
+          </div>
         </div>
       )}
 

@@ -8,9 +8,10 @@ import {
   validateFileType,
   validateFileSize,
 } from "@/middleware/fileValidation";
-import storageRoutes from "@/routes/storage/upload";
+import storageRoutes from "@/routes/storage";
 import predictionRoutes from "@/routes/prediction";
-import contributionRoutes from "@/routes/storage/contribution";
+import evaluationRoutes from "@/routes/evaluation";
+import rewardsRoutes from "@/routes/rewards";
 
 const app = express();
 
@@ -34,8 +35,9 @@ app.use(
   storageRoutes
 );
 
-app.use("/api", predictionRoutes);
-app.use("/api/contribution", contributionRoutes);
+app.use("/api/prediction", predictionRoutes);
+app.use("/api/evaluation", evaluationRoutes);
+app.use("/api/rewards", rewardsRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

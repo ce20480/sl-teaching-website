@@ -1,9 +1,13 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.routes.storage import storage_router
-from .api.routes.prediction import prediction_router
+from .api.routes import storage, prediction, rewards, evaluation
+from .utils.logging_config import setup_logging
 
-app = FastAPI()
+# Initialize logging
+setup_logging(log_level=logging.INFO)
+
+app = FastAPI(title="ASL Teaching API", description="API for ASL teaching application")
 
 # Configure CORS
 app.add_middleware(
@@ -19,9 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount routes
-app.include_router(storage_router)
-app.include_router(prediction_router)
+# Include all routers with API prefix
+app.include_router(storage.router, prefix="/api")
+app.include_router(prediction.router, prefix="/api")
+app.include_router(rewards.router, prefix="/api")
+app.include_router(evaluation.router, prefix="/api")
 
 @app.get("/health")
 async def health_check():
