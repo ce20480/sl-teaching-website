@@ -6,7 +6,6 @@ import Contribute from "./pages/Contribute";
 import Rewards from "./pages/Rewards";
 import Learn from "./pages/Learn";
 import Profile from "./pages/Profile";
-import { WalletConnect } from './components/WalletConnect';
 
 function App() {
   return (
@@ -21,7 +20,6 @@ function App() {
           <Route path="/profile" element={<Profile />} />
         </Routes>
       </MainLayout>
-      <WalletConnect />
     </Router>
   );
 }

@@ -5,6 +5,7 @@ import {
   CardContent,
   CardTitle,
   CardDescription,
+  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/features/upload/FileUpload";
@@ -14,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAccount } from "wagmi";
 import { ExperienceDisplay } from "@/components/ExperienceDisplay";
 import { WalletConnect } from "@/components/features/wallet/WalletConnect";
+import { InfoIcon } from "lucide-react";
 
 interface EvaluationStatus {
   status: string;
@@ -143,20 +145,28 @@ export default function Contribute() {
       </div>
 
       {!isConnected && (
-        <Card>
-          <CardContent className="pt-6">
-            <WalletConnect />
+        <Card className="mb-6 bg-slate-50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Connect Wallet</CardTitle>
+            <CardDescription>
+              Connect your wallet to earn rewards for your contributions
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <div className="flex justify-center py-2">
+              <WalletConnect />
+            </div>
           </CardContent>
         </Card>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
+        <Card className="md:col-span-2 lg:col-span-1">
           <CardHeader>
             <CardTitle>Upload Sign Language Data</CardTitle>
             <CardDescription>
               Upload images or videos of sign language gestures to help train
-              our model and earn XP tokens
+              our model
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -233,7 +243,7 @@ export default function Contribute() {
         </Card>
 
         {isConnected && (
-          <Card>
+          <Card className="md:col-span-2 lg:col-span-1">
             <CardHeader>
               <CardTitle>Your Experience</CardTitle>
               <CardDescription>Track your progress and rewards</CardDescription>
@@ -241,9 +251,42 @@ export default function Contribute() {
             <CardContent>
               <ExperienceDisplay />
             </CardContent>
+            <CardFooter className="bg-slate-50 border-t py-3 px-6 text-xs text-slate-500 flex items-center gap-2">
+              <InfoIcon className="h-4 w-4" />
+              <span>Earn XP for each approved contribution</span>
+            </CardFooter>
           </Card>
         )}
       </div>
+      
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle>How it Works</CardTitle>
+          <CardDescription>
+            Your contributions help improve our sign language recognition model
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+          <div className="bg-slate-50 p-4 rounded-lg">
+            <div className="font-medium mb-1">1. Upload</div>
+            <p className="text-sm text-slate-600">
+              Upload images or videos of sign language gestures
+            </p>
+          </div>
+          <div className="bg-slate-50 p-4 rounded-lg">
+            <div className="font-medium mb-1">2. Processing</div>
+            <p className="text-sm text-slate-600">
+              Our system evaluates your contribution
+            </p>
+          </div>
+          <div className="bg-slate-50 p-4 rounded-lg">
+            <div className="font-medium mb-1">3. Rewards</div>
+            <p className="text-sm text-slate-600">
+              Earn XP and special achievement NFTs
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
