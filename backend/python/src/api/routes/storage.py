@@ -1,17 +1,19 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from typing import Dict, Any
 from ...services.storage.akave_sdk import AkaveSDK, AkaveConfig, AkaveError
-from ...services.evaluator import ContributionEvaluator
+from ...services.evaluator import ContributionEvaluator, EvaluationStatus
 from ...core.config import settings
-# from ...services.reward_service import RewardService
+from ...services.reward.xp_reward import XpRewardService, ActivityType
+import logging
 import os
 import uuid
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 evaluator = ContributionEvaluator()
-# reward_service = RewardService()
+reward_service = XpRewardService()
+logger = logging.getLogger(__name__)
 
-@router.post("/contribution/upload")
+@router.post("/contribution")
 async def upload_file(
     file: UploadFile = File(...),
     user_address: str = Form(...),
@@ -22,49 +24,64 @@ async def upload_file(
     """
     if not user_address:
         raise HTTPException(400, "User address is required for rewards")
+    
+    logger.info(f"Processing contribution from address: {user_address}")
         
     try:
-        # 1. Upload to storage
-        async with AkaveSDK(AkaveConfig()) as akave:
-            upload_result = await akave.upload_file(
-                "contributions",  # bucket name
-                await file.read(),
-                file.filename
-            )
+        # 1. Upload to storage (using simplified approach for now)
+        contents = await file.read()
+        file_size = len(contents)
+        
+        # Use simplified approach to store file info for demo
+        upload_result = {
+            "fileId": str(uuid.uuid4()),
+            "filename": file.filename,
+            "size": file_size,
+            "mimeType": file.content_type,
+            "ipfsHash": f"Qm{uuid.uuid4().hex[:36]}"  # Fake IPFS hash for testing
+        }
+        
+        logger.info(f"Uploaded file: {file.filename}, size: {file_size} bytes")
         
         # 2. Create a unique task ID
         task_id = str(uuid.uuid4())
         
         # 3. Submit for evaluation
-        await evaluator.submit_for_evaluation(
-            task_id=task_id,
-            file_id=upload_result["fileId"],
-            file_type=file.content_type,
-            user_address=user_address,
-            metadata={
-                "filename": file.filename,
-                "content_type": file.content_type,
-                "size": file.size,
-                "ipfs_hash": upload_result.get("ipfsHash", "")
-            }
-        )
-        
+        # await evaluator.submit_for_evaluation(
+        #     task_id=task_id,
+        #     file_id=upload_result["fileId"],
+        #     file_type=file.content_type,
+        #     user_address=user_address,
+        #     metadata={
+        #         "filename": file.filename,
+        #         "content_type": file.content_type,
+        #         "size": file_size,
+        #         "ipfs_hash": upload_result.get("ipfsHash", "")
+        #     }
+        # )
+
+        result = await evaluator._process_evaluation(task_id)
+
+
+        logger.info(f"Evaluation result: {result.status}")
+
         # 4. Process evaluation in background
-        background_tasks.add_task(
-            evaluator.process_evaluation_and_reward,
-            task_id,
-            user_address,
-            upload_result
-        )
+        if result.status == EvaluationStatus.APPROVED:
+            logger.info(f"Awarding XP to {user_address} for activity type {ActivityType.DATASET_CONTRIBUTION}")
+            background_tasks.add_task(
+                reward_service.award_xp,
+                user_address,
+                ActivityType.DATASET_CONTRIBUTION,
+            )
         
-        return {
-            "success": True,
-            "message": "File uploaded and submitted for evaluation",
-            "task_id": task_id,
-            "upload_result": upload_result
-        }
+            return {
+                "status": True,
+                "upload_result": result.status,
+                "token_message": "your token is being mined and will be rewarded shortly"
+            }
         
     except Exception as e:
+        logger.error(f"Contribution upload error: {str(e)}")
         raise HTTPException(500, f"Upload failed: {str(e)}")
 
 async def process_evaluation_and_reward(
@@ -95,10 +112,10 @@ async def process_evaluation_and_reward(
         )
         
         # TODO: Store results in database
-        print(f"Evaluation and reward processing completed: {reward_result}")
+        logger.info(f"Evaluation and reward processing completed: {reward_result}")
         
     except Exception as e:
-        print(f"Error processing evaluation and reward: {e}")
+        logger.error(f"Error processing evaluation and reward: {e}")
 
 @router.get("/evaluation/{task_id}")
 async def get_evaluation_status(task_id: str) -> Dict[str, Any]:
@@ -152,7 +169,7 @@ async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
                 detail="File size must not exceed 100MB"
             )
 
-        print(f"Processing file: {file.filename}, size: {file_size} bytes")
+        logger.info(f"Processing file: {file.filename}, size: {file_size} bytes")
         
         # Initialize Akave SDK with proper configuration
         akave_config = AkaveConfig(host="http://localhost:4000")  # Docker container port
@@ -175,13 +192,13 @@ async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
             }
 
     except AkaveError as e:
-        print(f"Akave error: {str(e)}")
+        logger.error(f"Akave error: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Storage error: {str(e)}"
         )
     except Exception as e:
-        print(f"Upload error: {str(e)}")
+        logger.error(f"Upload error: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Upload failed: {str(e)}"

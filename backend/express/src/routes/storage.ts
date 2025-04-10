@@ -65,7 +65,6 @@ router.post(
   "/upload",
   logRequest,
   authenticateJWT,
-  express.json({ limit: "100mb" }),
   upload.single("file"),
   async (req: Request, res: Response) => {
     try {
@@ -112,28 +111,22 @@ router.post(
 
 // Contribution upload route
 router.post(
-  "/contribution/upload",
+  "/contribution",
   logRequest,
   authenticateJWT,
-  express.json({ limit: "100mb" }),
   upload.single("file"),
   async (req: Request, res: Response) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ error: "No file provided" });
+        return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const userAddress = req.body.user_address;
-
-      if (!userAddress) {
-        return res.status(400).json({
-          error: "User address is required for contribution uploads",
-        });
+      const user_address = req.body.user_address;
+      if (!user_address) {
+        return res.status(400).json({ error: "User address is required" });
       }
 
-      console.log(
-        `Contribution upload: ${req.file.originalname} from ${userAddress}`
-      );
+      console.log(`Processing contribution from user: ${user_address}`);
 
       // Create form data to send to Python backend
       const formData = new FormData();
@@ -141,11 +134,11 @@ router.post(
         filename: req.file.originalname,
         contentType: req.file.mimetype,
       });
-      formData.append("user_address", userAddress);
+      formData.append("user_address", user_address);
 
       // Forward to Python backend
       const response = await axios.post(
-        `${PYTHON_SERVICE_URL}/storage/contribution/upload`,
+        `${PYTHON_SERVICE_URL}/storage/contribution`,
         formData,
         {
           headers: {
@@ -174,7 +167,6 @@ router.get(
   "/evaluation/:taskId",
   logRequest,
   authenticateJWT,
-  express.json(),
   async (req: Request, res: Response) => {
     try {
       const taskId = req.params.taskId;
@@ -206,7 +198,6 @@ router.get(
   "/files",
   logRequest,
   authenticateJWT,
-  express.json(),
   handleErrors(proxyStorageRequest)
 );
 
@@ -215,7 +206,6 @@ router.all(
   "/*",
   logRequest,
   authenticateJWT,
-  express.json(),
   handleErrors(proxyStorageRequest)
 );
 

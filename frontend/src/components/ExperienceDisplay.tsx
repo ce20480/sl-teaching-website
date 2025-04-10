@@ -3,6 +3,7 @@ import { useAccount, useContractRead } from "wagmi";
 import { formatUnits } from "ethers/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { ASLExperienceToken__factory } from "../types/contracts/types/factories/contracts/ASLExperienceToken__factory";
+import { Award, Clock, Trophy } from "lucide-react";
 
 interface XPActivity {
   amount: string;
@@ -64,42 +65,68 @@ export function ExperienceDisplay() {
 
   if (!isConnected) {
     return (
-      <div className="bg-zinc-100 p-6 rounded-lg text-center">
-        Connect your wallet to view your XP
+      <div className="bg-blue-50 p-6 rounded-lg text-center text-blue-700 flex flex-col items-center">
+        <Trophy className="h-12 w-12 mb-2 text-blue-400 opacity-50" />
+        <p>Connect your wallet to view your XP</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white shadow rounded-lg p-6 space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">Experience Points</h2>
-        <div className="text-lg font-medium">{formattedBalance} XP</div>
+    <div className="space-y-4 w-full">
+      <div className="flex justify-between items-center bg-blue-50 p-4 rounded-lg">
+        <div className="flex items-center">
+          <Award className="h-6 w-6 text-blue-600 mr-2" />
+          <h2 className="text-lg font-semibold text-blue-800">Experience</h2>
+        </div>
+        <div className="text-lg font-medium bg-white px-3 py-1 rounded-full text-blue-600 border border-blue-100">
+          {parseFloat(formattedBalance).toLocaleString()} XP
+        </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 bg-white p-4 rounded-lg border border-slate-100">
         <div className="flex justify-between items-center">
-          <span>Level {currentLevel}</span>
-          <span>Level {currentLevel + 1}</span>
+          <span className="text-sm font-medium">Level {currentLevel}</span>
+          <span className="text-sm text-slate-500">
+            Level {currentLevel + 1}
+          </span>
         </div>
-        <Progress value={progressToNextLevel} className="h-2" />
+        <Progress
+          value={progressToNextLevel}
+          className="h-2 bg-slate-100"
+          indicatorClassName="bg-blue-500"
+        />
+        <div className="text-xs text-slate-500 text-right pt-1">
+          {Math.round(progressToNextLevel * 10)} / 1000 XP
+        </div>
       </div>
 
-      <div className="mt-6">
-        <h3 className="text-lg font-medium mb-2">Recent Activity</h3>
-        <div className="space-y-2">
-          {recentActivity.map((activity, index) => (
-            <div
-              key={index}
-              className="flex justify-between py-2 border-b border-gray-100"
-            >
-              <span>
-                {activityTypeToString(parseInt(activity.activityType))}
-              </span>
-              <span className="font-medium">+{activity.amount} XP</span>
-            </div>
-          ))}
-        </div>
+      <div className="mt-2 bg-white p-4 rounded-lg border border-slate-100">
+        <h3 className="text-md font-medium mb-3 flex items-center text-blue-700">
+          <Clock className="h-4 w-4 mr-2" />
+          Recent Activity
+        </h3>
+        {recentActivity.length > 0 ? (
+          <div className="space-y-2">
+            {recentActivity.map((activity, index) => (
+              <div
+                key={index}
+                className="flex justify-between py-2 border-b border-blue-50"
+              >
+                <span className="text-sm">
+                  {activityTypeToString(parseInt(activity.activityType))}
+                </span>
+                <span className="font-medium text-sm text-green-600">
+                  +{activity.amount} XP
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500 text-center py-2">
+            No recent activity
+          </p>
+        )}
       </div>
     </div>
   );

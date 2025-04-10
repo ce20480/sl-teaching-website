@@ -35,7 +35,7 @@ app.use(
   storageRoutes
 );
 
-app.use("/api", predictionRoutes);
+app.use("/api/prediction", predictionRoutes);
 app.use("/api/evaluation", evaluationRoutes);
 app.use("/api/rewards", rewardsRoutes);
 

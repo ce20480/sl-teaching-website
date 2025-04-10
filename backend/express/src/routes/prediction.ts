@@ -6,6 +6,7 @@ import { handleErrors } from "../middleware/errorHandler";
 import { authenticateJWT } from "../middleware/auth";
 import { validateRequestSchema } from "../middleware/validation";
 
+// Prediction API router 
 const router = express.Router();
 
 // Configuration for Python backend

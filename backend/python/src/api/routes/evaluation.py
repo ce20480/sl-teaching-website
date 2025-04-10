@@ -13,10 +13,31 @@ async def get_evaluation_status(task_id: str) -> Dict[str, Any]:
     try:
         status = await evaluator.get_evaluation_status(task_id)
         if not status:
-            raise HTTPException(status_code=404, detail=f"Task ID {task_id} not found")
+            # Return a default pending status for unknown tasks
+            return {
+                "status": "pending",
+                "message": "Task is queued for processing",
+                "completed": False,
+                "task_id": task_id
+            }
         
+        # Convert the EvaluationResult to a dictionary
+        if hasattr(status, 'dict'):
+            return status.dict()
+        
+        # If it's already a dict-like object, return it
         return status
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        raise HTTPException(status_code=500, detail=str(e))
+        elif "No evaluation found" in str(e):
+            # Return a default pending status for unknown tasks
+            return {
+                "status": "pending",
+                "message": "Task is queued for processing",
+                "completed": False,
+                "task_id": task_id
+            }
+        else:
+            print(f"Error getting evaluation status: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))

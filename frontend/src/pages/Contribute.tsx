@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAccount } from "wagmi";
 import { ExperienceDisplay } from "@/components/ExperienceDisplay";
 import { WalletConnect } from "@/components/features/wallet/WalletConnect";
-import { InfoIcon } from "lucide-react";
+import { InfoIcon, Upload, Brain, Trophy, Wallet } from "lucide-react";
 
 interface EvaluationStatus {
   status: string;
@@ -59,7 +59,15 @@ export default function Contribute() {
       setIsUploading(true);
       setUploadProgress(0);
 
-      const result = await storageApi.uploadFile(
+      // const result = await storageApi.uploadFile(
+      //   selectedFile,
+      //   (progress) => {
+      //     setUploadProgress(progress);
+      //   },
+      //   address // Pass the user's wallet address
+      // );
+
+      const result = await storageApi.uploadContribution(
         selectedFile,
         (progress) => {
           setUploadProgress(progress);
@@ -67,8 +75,11 @@ export default function Contribute() {
         address // Pass the user's wallet address
       );
 
-      console.log("Upload successful:", result);
-      toast.success("File successfully uploaded and submitted for evaluation!");
+      if (result && result.status) {
+        toast.success("File successfully uploaded and submitted for evaluation!");
+      } else {
+        toast.error("Failed to upload file");
+      }
 
       if (result.task_id) {
         setTaskId(result.task_id);
@@ -145,25 +156,31 @@ export default function Contribute() {
       </div>
 
       {!isConnected && (
-        <Card className="mb-6 bg-slate-50">
+        <Card className="mb-6 bg-blue-50 border-blue-100">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Connect Wallet</CardTitle>
+            <CardTitle className="text-lg flex items-center text-blue-700">
+              <Wallet className="mr-2 h-5 w-5" />
+              Connect Wallet
+            </CardTitle>
             <CardDescription>
               Connect your wallet to earn rewards for your contributions
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-2">
-            <div className="flex justify-center py-2">
+            <div className="flex justify-center py-2 max-w-md mx-auto">
               <WalletConnect />
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="md:col-span-2 lg:col-span-1">
+      <div className="grid grid-cols-1 gap-6">
+        <Card>
           <CardHeader>
-            <CardTitle>Upload Sign Language Data</CardTitle>
+            <CardTitle className="flex items-center">
+              <Upload className="mr-2 h-5 w-5 text-blue-600" />
+              Upload Sign Language Data
+            </CardTitle>
             <CardDescription>
               Upload images or videos of sign language gestures to help train
               our model
@@ -243,12 +260,15 @@ export default function Contribute() {
         </Card>
 
         {isConnected && (
-          <Card className="md:col-span-2 lg:col-span-1">
-            <CardHeader>
-              <CardTitle>Your Experience</CardTitle>
+          <Card className="border-blue-100">
+            <CardHeader className="bg-blue-50 rounded-t-lg">
+              <CardTitle className="flex items-center">
+                <Trophy className="mr-2 h-5 w-5 text-blue-600" />
+                Your Experience
+              </CardTitle>
               <CardDescription>Track your progress and rewards</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-6">
               <ExperienceDisplay />
             </CardContent>
             <CardFooter className="bg-slate-50 border-t py-3 px-6 text-xs text-slate-500 flex items-center gap-2">
@@ -259,28 +279,31 @@ export default function Contribute() {
         )}
       </div>
       
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle>How it Works</CardTitle>
+      <Card className="border-blue-100">
+        <CardHeader className="pb-3 bg-blue-50 rounded-t-lg">
+          <CardTitle className="flex items-center">
+            <Brain className="mr-2 h-5 w-5 text-blue-600" />
+            How it Works
+          </CardTitle>
           <CardDescription>
             Your contributions help improve our sign language recognition model
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-          <div className="bg-slate-50 p-4 rounded-lg">
-            <div className="font-medium mb-1">1. Upload</div>
+        <CardContent className="grid gap-4 grid-cols-1 sm:grid-cols-3 pt-6">
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+            <div className="font-medium mb-1 text-blue-700">1. Upload</div>
             <p className="text-sm text-slate-600">
               Upload images or videos of sign language gestures
             </p>
           </div>
-          <div className="bg-slate-50 p-4 rounded-lg">
-            <div className="font-medium mb-1">2. Processing</div>
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+            <div className="font-medium mb-1 text-blue-700">2. Processing</div>
             <p className="text-sm text-slate-600">
               Our system evaluates your contribution
             </p>
           </div>
-          <div className="bg-slate-50 p-4 rounded-lg">
-            <div className="font-medium mb-1">3. Rewards</div>
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+            <div className="font-medium mb-1 text-blue-700">3. Rewards</div>
             <p className="text-sm text-slate-600">
               Earn XP and special achievement NFTs
             </p>
