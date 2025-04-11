@@ -1,16 +1,13 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from typing import Dict, Any
-from ...services.storage.akave_sdk import AkaveSDK, AkaveConfig, AkaveError
-from ...services.evaluator import ContributionEvaluator, EvaluationStatus
-from ...core.config import settings
-from ...services.reward.xp_reward import XpRewardService, ActivityType
+from ...services.storage.akave_sdk import AkaveError
+from ...services.service_container import get_contribution_service, get_storage_sdk, initialize_services
 import logging
-import os
-import uuid
+
+# Initialize all services
+initialize_services()
 
 router = APIRouter(prefix="/storage", tags=["storage"])
-evaluator = ContributionEvaluator()
-reward_service = XpRewardService()
 logger = logging.getLogger(__name__)
 
 @router.post("/contribution")
@@ -20,126 +17,84 @@ async def upload_file(
     background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> Dict[str, Any]:
     """
-    Handle file upload with evaluation and rewards
+    Handle file upload with a three-phase process:
+    1. Evaluate image quality
+    2. Upload approved images
+    3. Reward users for approved contributions
     """
     if not user_address:
         raise HTTPException(400, "User address is required for rewards")
     
     logger.info(f"Processing contribution from address: {user_address}")
-        
+    
+    # Get contribution service from container    
+    contribution_service = get_contribution_service()
+    
     try:
-        # 1. Upload to storage (using simplified approach for now)
+        # 1. Read file contents
         contents = await file.read()
-        file_size = len(contents)
         
-        # Use simplified approach to store file info for demo
-        upload_result = {
-            "fileId": str(uuid.uuid4()),
-            "filename": file.filename,
-            "size": file_size,
-            "mimeType": file.content_type,
-            "ipfsHash": f"Qm{uuid.uuid4().hex[:36]}"  # Fake IPFS hash for testing
+        # Check file type
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(400, "Only image files are accepted")
+        
+        # 2. Submit contribution to service
+        task_metadata = await contribution_service.submit_contribution(
+            file_content=contents,
+            file_name=file.filename,
+            file_type=file.content_type,
+            user_address=user_address
+        )
+        
+        # Get task ID from metadata
+        task_id = task_metadata["task_id"]
+        
+        # 3. Start evaluation workflow in background
+        background_tasks.add_task(
+            contribution_service.process_evaluation_workflow,
+            task_id,
+            user_address,
+            contents,
+            task_metadata
+        )
+        
+        # 4. Return immediate response with task ID for status tracking
+        return {
+            "success": True,
+            "message": "Contribution submitted for evaluation",
+            "task_id": task_id,
+            "status_endpoint": f"/api/evaluation/status/{task_id}"
         }
-        
-        logger.info(f"Uploaded file: {file.filename}, size: {file_size} bytes")
-        
-        # 2. Create a unique task ID
-        task_id = str(uuid.uuid4())
-        
-        # 3. Submit for evaluation
-        # await evaluator.submit_for_evaluation(
-        #     task_id=task_id,
-        #     file_id=upload_result["fileId"],
-        #     file_type=file.content_type,
-        #     user_address=user_address,
-        #     metadata={
-        #         "filename": file.filename,
-        #         "content_type": file.content_type,
-        #         "size": file_size,
-        #         "ipfs_hash": upload_result.get("ipfsHash", "")
-        #     }
-        # )
-
-        result = await evaluator._process_evaluation(task_id)
-
-
-        logger.info(f"Evaluation result: {result.status}")
-
-        # 4. Process evaluation in background
-        if result.status == EvaluationStatus.APPROVED:
-            logger.info(f"Awarding XP to {user_address} for activity type {ActivityType.DATASET_CONTRIBUTION}")
-            background_tasks.add_task(
-                reward_service.award_xp,
-                user_address,
-                ActivityType.DATASET_CONTRIBUTION,
-            )
-        
-            return {
-                "status": True,
-                "upload_result": result.status,
-                "token_message": "your token is being mined and will be rewarded shortly"
-            }
         
     except Exception as e:
         logger.error(f"Contribution upload error: {str(e)}")
         raise HTTPException(500, f"Upload failed: {str(e)}")
 
-async def process_evaluation_and_reward(
-    task_id: str,
-    user_address: str,
-    upload_result: Dict[str, Any]
-) -> None:
-    """
-    Background task to process evaluation and award tokens
-    """
-    try:
-        # Wait for evaluation result
-        evaluation_result = await evaluator._process_evaluation({
-            "task_id": task_id,
-            "file_id": upload_result["fileId"],
-            "metadata": upload_result
-        })
-        
-        # Process rewards if evaluation passed
-        reward_result = await reward_service.process_evaluation_result(
-            user_address,
-            evaluation_result,
-            {
-                "ipfs_hash": upload_result.get("ipfsHash", ""),
-                "file_id": upload_result["fileId"],
-                "task_id": task_id
-            }
-        )
-        
-        # TODO: Store results in database
-        logger.info(f"Evaluation and reward processing completed: {reward_result}")
-        
-    except Exception as e:
-        logger.error(f"Error processing evaluation and reward: {e}")
-
-@router.get("/evaluation/{task_id}")
+@router.get("/evaluation/status/{task_id}")
 async def get_evaluation_status(task_id: str) -> Dict[str, Any]:
     """
-    Get the status of an evaluation task
+    Get the status of an evaluation task with detailed phase information
     """
-    result = await evaluator.get_evaluation_status(task_id)
-    if not result:
-        raise HTTPException(404, "Evaluation task not found")
-    return {
-        "task_id": task_id,
-        "status": result.status.value,
-        "score": result.score,
-        "feedback": result.feedback,
-        "timestamp": result.timestamp.isoformat(),
-        "metadata": result.metadata
-    } 
+    try:
+        # Get status from contribution service
+        contribution_service = get_contribution_service()
+        return await contribution_service.get_contribution_status(task_id)
+        
+    except Exception as e:
+        logger.error(f"Error getting evaluation status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get evaluation status: {str(e)}"
+        )
 
 @router.get('/files')
 async def list_files() -> Dict[str, Any]:
     """List all files"""
     try:
-        files = await self.storage_service.list_files(settings.DEFAULT_BUCKET)
-        return {"files": files}
+        akave_sdk = get_storage_sdk()
+        async with akave_sdk as client:
+            files = await client.list_files("asl-training-data")
+            return {"files": files}
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -147,9 +102,9 @@ async def list_files() -> Dict[str, Any]:
         )
 
 @router.post('/upload')
-async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_file_direct(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Upload a file to Akave storage.
+    Upload a file directly to Akave storage.
     Supports binary files (images, videos, etc.)
     """
     try:
@@ -157,25 +112,10 @@ async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
         contents = await file.read()
         file_size = len(contents)
 
-        # Size validations
-        if file_size < 127:
-            raise HTTPException(
-                status_code=400,
-                detail="File size must be at least 127 bytes"
-            )
-        if file_size > 100 * 1024 * 1024:  # 100MB
-            raise HTTPException(
-                status_code=400,
-                detail="File size must not exceed 100MB"
-            )
-
         logger.info(f"Processing file: {file.filename}, size: {file_size} bytes")
         
-        # Initialize Akave SDK with proper configuration
-        akave_config = AkaveConfig(host="http://localhost:4000")  # Docker container port
-        akave_sdk = AkaveSDK(akave_config)
-
-        async with akave_sdk as client:  # Use initialized SDK
+        akave_sdk = get_storage_sdk()
+        async with akave_sdk as client:
             result = await client.upload_file(
                 bucket_name="asl-training-data",
                 file_data=contents,

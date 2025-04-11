@@ -1,14 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import numpy as np
-import os
-from ...services.ml.asl_service import ASLService
-from ...core.config import settings
+from ...services.service_container import get_asl_service
 
 # Initialize the model service with model path
-model_path = settings.MODEL_PATH
-asl_service = ASLService(model_path)
+asl_service = get_asl_service()
 
 router = APIRouter(prefix="/prediction", tags=["prediction"])
 

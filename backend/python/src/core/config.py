@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     DEFAULT_BUCKET: str = "asl-training-data"
     MODEL_PATH: str = Field(default="./models/asl_model.pkl")
     WEB3_PROVIDER_URL: str = Field(default="https://api.calibration.node.glif.io/rpc/v1")
+    AKAVE_HOST: str = Field(default="http://localhost:4000")
     
     # Add missing fields that exist in .env
     REWARD_SERVICE_PRIVATE_KEY: str = Field(default="")

@@ -3,9 +3,9 @@ import os
 import numpy as np
 from sl_detection import ASLPreprocessor, HandDetector, CoordsModel, ASLPipeline
 from sl_detection import ContributionManager, create_asl_letter_mapping, get_letter_from_prediction
-
+from ...core.config import settings
 class ASLService:
-    def __init__(self, model_path):
+    def __init__(self, model_path=settings.MODEL_PATH):
         # Check if model exists
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found at {model_path}")
@@ -26,7 +26,7 @@ class ASLService:
             # Decode and process image through pipeline
             # [Your existing image decoding code]
             
-            prediction, landmarks, _ = self.pipeline.process_image(image)
+            prediction, landmarks, _ = self.pipeline.process_image(image_data)
             
             if prediction is None:
                 return {"detected": False}
