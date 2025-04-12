@@ -12,7 +12,7 @@ const features = [
     title: "Contribute",
     description: "Help improve our system by contributing sign language data",
     icon: Upload,
-    to: "/contribute",
+    to: "/contribute-v2",
   },
   {
     title: "Earn Rewards",

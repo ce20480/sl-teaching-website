@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks,
 from typing import Dict, Any, Optional
 from ...services.storage.akave_sdk import AkaveError
 from ...services.service_container import get_contribution_service, get_storage_sdk, initialize_services
+from ...core.config import settings
 import logging
 import traceback
 import json
@@ -10,12 +11,17 @@ from fastapi.responses import StreamingResponse
 import asyncio
 import hashlib
 from ...schemas.Storage import RewardRequest
+import uuid
+import re
 
 # Initialize all services
 initialize_services()
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 logger = logging.getLogger(__name__)
+
+# In-memory store of job statuses for the example
+LILYPAD_JOBS = {}
 
 @router.post("/contribution")
 async def upload_file(
@@ -888,3 +894,220 @@ async def process_reward(
                 "error_type": type(e).__name__,
             }
         }
+
+@router.post("/evaluate_lilypad")
+async def evaluate_landmarks_lilypad(
+    file: UploadFile = File(...),
+    user_address: str = Form(...),
+    landmarks: Optional[str] = Form(None),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+) -> Dict[str, Any]:
+    """
+    Evaluate sign language using the Lilypad module
+    This runs as a background task and returns a job ID for status polling
+    """
+    
+    try:
+        # Create a unique job ID
+        job_id = str(uuid.uuid4())
+        LILYPAD_JOBS[job_id] = {"status": "pending", "result": None}
+        
+        logger.info(f"Starting Lilypad evaluation job {job_id} for user {user_address}")
+        
+        # Process landmarks if provided
+        if not landmarks:
+            return {
+                "success": False,
+                "error": "Landmarks are required for Lilypad evaluation",
+                "job_id": job_id,
+                "status": "failed"
+            }
+            
+        # Parse landmarks
+        try:
+            landmarks_data = json.loads(landmarks)
+            logger.info(f"Parsed landmarks with {len(landmarks_data)} points")
+        except Exception as e:
+            logger.error(f"Failed to parse landmarks data: {e}")
+            LILYPAD_JOBS[job_id]["status"] = "failed"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": f"Invalid landmarks format: {str(e)}"
+            }
+            return {
+                "success": False,
+                "error": f"Invalid landmarks format: {str(e)}",
+                "job_id": job_id,
+                "status": "failed"
+            }
+        
+        # Add the background task for Lilypad processing
+        background_tasks.add_task(
+            run_lilypad_evaluation,
+            landmarks_data,
+            job_id
+        )
+        
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": "processing",
+            "message": "Lilypad evaluation started"
+        }
+        
+    except Exception as e:
+        logger.error(f"Lilypad evaluation error: {str(e)}")
+        
+        # If job_id was created, update its status
+        if 'job_id' in locals():
+            LILYPAD_JOBS[job_id]["status"] = "failed"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": str(e)
+            }
+            
+            return {
+                "success": False,
+                "error": f"Lilypad evaluation failed: {str(e)}",
+                "job_id": job_id,
+                "status": "failed"
+            }
+        
+        return {
+            "success": False,
+            "error": f"Lilypad evaluation failed: {str(e)}",
+            "status": "failed"
+        }
+
+async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
+    """Background task to run the Lilypad evaluation"""
+    
+    import subprocess
+    import os
+    
+    try:
+        # Convert landmarks to properly formatted JSON
+        env_vars = os.environ.copy()
+        logger.info(f"Landmarks data: {landmarks_data}")
+        logger.info(f"Landmarks data type: {type(landmarks_data)}")
+        
+        # Properly format landmarks as JSON and escape it for command-line use
+        landmarks_json = json.dumps(landmarks_data)
+        # Escape the JSON string for shell command
+        
+        # Prepare the lilypad command
+        env_vars["WEB3_PRIVATE_KEY"] = settings.WEB3_PRIVATE_KEY
+
+        command = [
+            "lilypad",
+            "run",
+            "github.com/ce20480/lilypad-module-sl:1cd44ef8f155c8e6a379250d972de71ce77b6ea2",
+            "-i",
+            f'INPUT={landmarks_json}'
+        ]
+        
+        logger.info(f"Running Lilypad command for job {job_id}")
+        logger.info(f"Command: {' '.join(command)}")
+        
+        # Run the Lilypad module in a subprocess
+        result = subprocess.run(
+            command,
+            check=True,
+            text=True,
+            capture_output=True,
+            env=env_vars
+        )
+        
+        # Log subprocess output for debugging
+        logger.info(f"Command stdout: {result.stdout[:500]}...")
+        if result.stderr:
+            logger.warning(f"Command stderr: {result.stderr}")
+        
+        # Parse the output to find the file path
+        lines = result.stdout.strip().split("\n")
+        path_line = None
+        
+        # Search from the bottom up for the output file path
+        for line in reversed(lines):
+            line_stripped = line.strip()
+            if "open /tmp/lilypad/data/downloaded-files" in line_stripped:
+                path_line = line_stripped
+                break
+        
+        if not path_line:
+            # No matching line found - try regex search
+            pattern = r"open\s+(/tmp/lilypad/data/downloaded-files/\S+)"
+            match = re.search(pattern, result.stdout)
+            if match:
+                dir_path = match.group(1)
+                file_path = os.path.join(dir_path, "outputs", "result.json")
+            else:
+                # Handle error - no output path found
+                logger.error(f"Could not find output path in Lilypad response for job {job_id}")
+                LILYPAD_JOBS[job_id]["status"] = "error"
+                LILYPAD_JOBS[job_id]["result"] = {
+                    "status": "error",
+                    "message": "Could not find output path in Lilypad response"
+                }
+                return
+        else:
+            # Parse the path line
+            path_line = path_line.replace("open ", "")
+            file_path = os.path.join(path_line, "outputs", "result.json")
+        
+        logger.info(f"Looking for result file at: {file_path}")
+        if not os.path.exists(file_path):
+            # If the file doesn't exist, handle the error
+            logger.error(f"Result file not found at {file_path} for job {job_id}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": f"Could not find result.json at {file_path}"
+            }
+            return
+        
+        # Read and parse the result.json
+        with open(file_path, "r") as f:
+            file_data = json.load(f)
+        
+        logger.info(f"Loaded result data: {file_data}")
+        
+        if file_data.get("status") == "error":
+            # If the JSON indicates an error
+            logger.error(f"Lilypad module returned error for job {job_id}: {file_data.get('message', 'Unknown error')}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = file_data
+        else:
+            # Success case
+            logger.info(f"Lilypad evaluation completed successfully for job {job_id}")
+            LILYPAD_JOBS[job_id]["status"] = "completed"
+            LILYPAD_JOBS[job_id]["result"] = file_data
+    
+    except subprocess.CalledProcessError as e:
+        # Handle subprocess error
+        logger.error(f"Lilypad subprocess error for job {job_id}: {e}")
+        # logger.error(f"Stderr: {e.stderr}")
+        # logger.error(f"Stdout: {e.stdout}")
+        LILYPAD_JOBS[job_id]["status"] = "error"
+        LILYPAD_JOBS[job_id]["result"] = {
+            "status": "error",
+            "message": e.stderr or e.stdout
+        }
+    except Exception as e:
+        # Handle general errors
+        logger.error(f"Error in Lilypad evaluation for job {job_id}: {str(e)}")
+        LILYPAD_JOBS[job_id]["status"] = "error"
+        LILYPAD_JOBS[job_id]["result"] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+@router.get("/lilypad/status/{job_id}")
+async def get_lilypad_job_status(job_id: str) -> Dict[str, Any]:
+    """
+    Get the status of a Lilypad evaluation job
+    """
+    if job_id not in LILYPAD_JOBS:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return LILYPAD_JOBS[job_id]

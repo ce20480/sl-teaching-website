@@ -19,6 +19,7 @@ import {
   FileType,
   CheckCircle,
   XCircle,
+  Cloud,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -50,6 +51,20 @@ const getStatusBadgeColor = (status: string) => {
   }
 };
 
+// Define Lilypad result interface
+interface LilypadOutput {
+  letter?: string;
+  confidence?: number;
+  status?: string;
+}
+
+interface LilypadResult {
+  output?: LilypadOutput;
+  message?: string;
+  landmarks?: number[];
+  status?: string;
+}
+
 export default function ContributeV2() {
   // File management state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -75,6 +90,12 @@ export default function ContributeV2() {
 
   // Wallet connection
   const { address, isConnected } = useAccount();
+
+  // Lilypad evaluation state
+  const [isLilypadProcessing, setIsLilypadProcessing] = useState(false);
+  const [lilypadResult, setLilypadResult] = useState<LilypadResult | null>(
+    null
+  );
 
   // Handle file selection
   const handleFileSelect = (file: File) => {
@@ -487,6 +508,117 @@ export default function ContributeV2() {
     }
   };
 
+  // Handle Lilypad evaluation
+  const handleLilypadEvaluation = async () => {
+    if (!selectedFile || !address || !handLandmarks) {
+      // Provide informative message about what's missing
+      if (!selectedFile) {
+        toast.error("Please select a file to upload");
+      } else if (!address) {
+        toast.error("Please connect your wallet to upload");
+      } else if (!handLandmarks) {
+        toast.error("No hand landmarks detected. Please try another image.");
+      }
+      return;
+    }
+
+    // Set processing state
+    setIsLilypadProcessing(true);
+    setProgressPercent(0);
+
+    try {
+      // Start Lilypad evaluation
+      console.log("Starting Lilypad evaluation");
+      const lilypadResponse = await contributionApi.evaluateLilypad(
+        selectedFile,
+        handLandmarks,
+        address,
+        (progress) => setProgressPercent(progress)
+      );
+
+      if (!lilypadResponse.success || !lilypadResponse.job_id) {
+        console.error("Lilypad evaluation failed:", lilypadResponse);
+        toast.error(
+          lilypadResponse.message ||
+            "Lilypad evaluation failed. Please try again."
+        );
+        setIsLilypadProcessing(false);
+        return;
+      }
+
+      // Get job ID for polling
+      const jobId = lilypadResponse.job_id;
+
+      toast.success(
+        `Lilypad evaluation started! Job ID: ${jobId.substring(0, 8)}...`
+      );
+
+      // Start polling for job status
+      const toastId = toast.loading("Checking Lilypad evaluation status...");
+
+      try {
+        // Poll for status updates
+        const statusResult = await contributionApi.pollLilypadJobStatus(
+          jobId,
+          (status) => {
+            console.log("Lilypad status update:", status);
+            // Update toast with current status
+            toast.loading(`Lilypad evaluation ${status.status}...`, {
+              id: toastId,
+            });
+          }
+        );
+
+        // Check if evaluation was successful
+        if (statusResult.status === "completed" && statusResult.result) {
+          toast.success("Lilypad evaluation completed successfully!", {
+            id: toastId,
+          });
+          setLilypadResult(statusResult.result as LilypadResult);
+
+          // Display the result
+          const output = (statusResult.result?.output as LilypadOutput) || {};
+          if (output.status === "success") {
+            toast.success(
+              `Detected sign: ${
+                output.letter || "Unknown"
+              } (confidence: ${Math.round((output.confidence || 0) * 100)}%)`
+            );
+          } else {
+            toast.error("Lilypad evaluation did not return a valid result");
+          }
+        } else {
+          // Handle error case
+          toast.error(
+            `Lilypad evaluation ${statusResult.status}: ${
+              typeof statusResult.result?.message === "string"
+                ? statusResult.result.message
+                : "Unknown error"
+            }`,
+            { id: toastId }
+          );
+        }
+      } catch (error) {
+        console.error("Error polling Lilypad job status:", error);
+        toast.error(
+          `Lilypad status polling failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { id: toastId }
+        );
+      }
+    } catch (error) {
+      console.error("Lilypad evaluation error:", error);
+      toast.error(
+        `Lilypad evaluation error: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      setIsLilypadProcessing(false);
+    }
+  };
+
   // Render contribution status information
   const renderContributionStatus = () => {
     const contribution = contributions.find(
@@ -880,6 +1012,32 @@ export default function ContributeV2() {
                 }}
               />
 
+              {/* Lilypad Upload Button */}
+              <Button
+                onClick={handleLilypadEvaluation}
+                disabled={
+                  isLilypadProcessing ||
+                  isProcessing ||
+                  !selectedFile ||
+                  !handLandmarks ||
+                  !isConnected
+                }
+                variant="outline"
+                className="w-full flex gap-2 items-center"
+              >
+                {isLilypadProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cloud className="h-4 w-4" />
+                    <span>Lilypad Upload</span>
+                  </>
+                )}
+              </Button>
+
               {/* Upload button */}
               {selectedFile && (
                 <div className="flex flex-col gap-2">
@@ -960,6 +1118,46 @@ export default function ContributeV2() {
                   </div>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Display Lilypad Results if available */}
+      {lilypadResult && (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-lg">Lilypad Evaluation Result</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {lilypadResult.output && (
+                <div className="flex items-center gap-2">
+                  <strong>Detected Sign:</strong>
+                  <span className="text-lg font-semibold">
+                    {lilypadResult.output.letter || "Unknown"}
+                  </span>
+                  {lilypadResult.output.status === "success" ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500" />
+                  )}
+                </div>
+              )}
+
+              {lilypadResult.output &&
+                lilypadResult.output.confidence !== undefined && (
+                  <div>
+                    <strong>Confidence:</strong>{" "}
+                    {Math.round((lilypadResult.output.confidence || 0) * 100)}%
+                  </div>
+                )}
+
+              {lilypadResult.message && (
+                <div className="text-sm text-muted-foreground">
+                  {lilypadResult.message}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

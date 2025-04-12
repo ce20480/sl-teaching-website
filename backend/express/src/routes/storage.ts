@@ -585,6 +585,149 @@ router.get(
   }
 );
 
+// Lilypad evaluation endpoint
+router.post(
+  "/evaluate_lilypad",
+  logRequest,
+  authenticateJWT,
+  uploadLimiter,
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        console.error("[Express] Lilypad evaluation error: No file uploaded");
+        return res.status(400).json({
+          success: false,
+          error: "No file uploaded",
+        });
+      }
+
+      const user_address = req.body.user_address;
+      if (!user_address) {
+        console.error(
+          "[Express] Lilypad evaluation error: No user address provided"
+        );
+        return res.status(400).json({
+          success: false,
+          error: "User address is required",
+        });
+      }
+
+      logFileUpload(req, req.file, user_address, "lilypad-evaluation");
+
+      // Check for landmarks
+      const landmarks = req.body.landmarks;
+      if (!landmarks) {
+        console.error(
+          "[Express] Lilypad evaluation error: No landmarks provided"
+        );
+        return res.status(400).json({
+          success: false,
+          error: "Landmarks are required for Lilypad evaluation",
+        });
+      }
+
+      // Create form data to send to Python backend
+      const formData = new FormData();
+      formData.append("file", req.file.buffer, {
+        filename: req.file.originalname,
+        contentType: req.file.mimetype,
+      });
+      formData.append("user_address", user_address);
+      formData.append("landmarks", landmarks);
+
+      console.log(`[Express] Forwarding to Python Lilypad evaluation endpoint`);
+
+      // Forward to Python backend
+      const response = await axios.post(
+        `${PYTHON_SERVICE_URL}/storage/evaluate_lilypad`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            ...(req.headers.authorization && {
+              Authorization: req.headers.authorization,
+            }),
+          },
+        }
+      );
+
+      console.log(
+        `[Express] Lilypad evaluation response received:`,
+        response.data
+      );
+
+      // Ensure response has success field
+      if (response.data && !response.data.hasOwnProperty("success")) {
+        response.data.success = true;
+      }
+
+      return res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[Express] Lilypad evaluation error: ${error.message}`);
+      console.error(error.response?.data || error);
+
+      return res.status(error.response?.status || 500).json({
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to process Lilypad evaluation",
+      });
+    }
+  }
+);
+
+// Lilypad job status endpoint
+router.get(
+  "/lilypad/status/:jobId",
+  logRequest,
+  statusLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.jobId;
+      console.log(`[Express] Checking Lilypad job status for: ${jobId}`);
+
+      // Forward to Python backend
+      const response = await axios.get(
+        `${PYTHON_SERVICE_URL}/storage/lilypad/status/${jobId}`,
+        {
+          headers: {
+            ...(req.headers.authorization && {
+              Authorization: req.headers.authorization,
+            }),
+          },
+        }
+      );
+
+      console.log(
+        `[Express] Lilypad job status response received with status: ${response.status}`
+      );
+      return res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[Express] Lilypad job status error: ${error.message}`);
+
+      // Special handling for 404 Not Found errors
+      if (error.response?.status === 404) {
+        return res.status(404).json({
+          success: false,
+          error: "Job not found",
+        });
+      }
+
+      return res.status(error.response?.status || 500).json({
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to get Lilypad job status",
+      });
+    }
+  }
+);
+
 // Error handler specific to storage routes
 router.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error(`[Express] Storage route error:`, err);

@@ -86,8 +86,22 @@ class ASLService:
                     "message": f"Failed to process landmarks format: {str(reshape_error)}"
                 }
             
-            # Process through pipeline
-            prediction = self.pipeline.process_landmarks(landmarks_array)
+            # Process through pipeline this function does not exist
+            # prediction = self.pipeline.process_landmarks(landmarks_array)
+
+            # Preprocess landmarks
+            if self.preprocessor.normalize:
+                normalized_landmarks = self.preprocessor.normalize_landmarks(landmarks)
+            else:
+                normalized_landmarks = landmarks
+            
+            if self.preprocessor.flatten:
+                features = self.preprocessor.flatten_landmarks(normalized_landmarks)
+            else:
+                features = normalized_landmarks
+            
+            # Make prediction
+            prediction = self.model.predict(features)
             
             # Get letter from prediction
             letter = get_letter_from_prediction(prediction, self.letter_mapping)

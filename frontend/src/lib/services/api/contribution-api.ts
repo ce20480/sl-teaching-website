@@ -10,6 +10,20 @@ import {
   UploadResponse,
 } from "@/types/contribution";
 
+// Define Lilypad response types
+interface LilypadJobResponse {
+  success: boolean;
+  job_id?: string;
+  status: string;
+  message?: string;
+  error?: string;
+}
+
+interface LilypadStatusResponse {
+  status: "pending" | "processing" | "completed" | "error" | "failed";
+  result: Record<string, unknown>;
+}
+
 /**
  * API service for contribution workflow with staged evaluation, upload, and reward phases
  */
@@ -363,5 +377,159 @@ export const contributionApi = {
     return () => {
       eventSource.close();
     };
+  },
+
+  /**
+   * Evaluate a contribution using Lilypad
+   * Runs the sign language detection module on Lilypad
+   */
+  async evaluateLilypad(
+    file: File,
+    landmarks: number[],
+    walletAddress?: string,
+    onProgress?: (progress: number) => void
+  ): Promise<LilypadJobResponse> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Add wallet address
+      if (walletAddress) {
+        formData.append("user_address", walletAddress);
+      }
+
+      // Add landmarks
+      formData.append("landmarks", JSON.stringify(landmarks));
+
+      console.log(
+        `Evaluating file with Lilypad: ${file.name} (${file.size} bytes) with address: ${walletAddress}`
+      );
+
+      const response = await apiClient.post(
+        "/api/storage/evaluate_lilypad",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          onUploadProgress: (progressEvent) => {
+            if (onProgress && progressEvent.total) {
+              const progress = Math.round(
+                (progressEvent.loaded * 100) / progressEvent.total
+              );
+              onProgress(progress);
+              console.log(`Lilypad evaluation upload progress: ${progress}%`);
+            }
+          },
+        }
+      );
+
+      console.log("Lilypad evaluation response:", response.data);
+      return response.data;
+    } catch (error) {
+      console.error("Lilypad evaluation error:", error);
+
+      // Return a standardized error response
+      return {
+        success: false,
+        status: "failed",
+        message:
+          error instanceof AxiosError
+            ? error.response?.data?.error || error.message
+            : error instanceof Error
+            ? error.message
+            : "Lilypad evaluation failed",
+        error: String(error),
+      };
+    }
+  },
+
+  /**
+   * Check the status of a Lilypad evaluation job
+   */
+  async checkLilypadStatus(jobId: string): Promise<LilypadStatusResponse> {
+    try {
+      console.log(`Checking Lilypad job status for: ${jobId}`);
+
+      const response = await apiClient.get(
+        `/api/storage/lilypad/status/${jobId}`
+      );
+
+      console.log(`Lilypad job status response:`, response.data);
+      return response.data;
+    } catch (error) {
+      console.error("Lilypad status check error:", error);
+
+      // If the job was not found (404), provide a clear message
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        throw new Error(`Job ${jobId} not found`);
+      }
+
+      // Otherwise propagate the error
+      throw error;
+    }
+  },
+
+  /**
+   * Poll for Lilypad job status until completion or error
+   * Implements exponential backoff
+   */
+  async pollLilypadJobStatus(
+    jobId: string,
+    onStatusUpdate?: (status: LilypadStatusResponse) => void,
+    maxRetries = 30, // Maximum number of retries
+    initialDelay = 2000, // Initial delay in milliseconds
+    maxDelay = 10000 // Maximum delay in milliseconds
+  ): Promise<LilypadStatusResponse> {
+    let currentDelay = initialDelay;
+    let retries = 0;
+
+    while (retries < maxRetries) {
+      try {
+        const statusResponse = await this.checkLilypadStatus(jobId);
+
+        // If callback provided, update with current status
+        if (onStatusUpdate) {
+          onStatusUpdate(statusResponse);
+        }
+
+        // If job is completed or failed, stop polling
+        if (
+          statusResponse.status === "completed" ||
+          statusResponse.status === "error" ||
+          statusResponse.status === "failed"
+        ) {
+          return statusResponse;
+        }
+
+        // Calculate next delay with exponential backoff (capped at maxDelay)
+        currentDelay = Math.min(currentDelay * 1.5, maxDelay);
+        retries++;
+
+        // Wait before next poll
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
+      } catch (error) {
+        console.error(`Error polling Lilypad job status: ${error}`);
+
+        // Check if we've hit retry limit
+        if (retries >= maxRetries) {
+          throw new Error(
+            `Max retries (${maxRetries}) reached for job ${jobId}`
+          );
+        }
+
+        // Increase delay and continue
+        currentDelay = Math.min(currentDelay * 2, maxDelay);
+        retries++;
+
+        // Wait before next poll
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
+      }
+    }
+
+    // If we've exhausted retries without completion
+    throw new Error(
+      `Job ${jobId} did not complete within the polling time limit`
+    );
   },
 };
