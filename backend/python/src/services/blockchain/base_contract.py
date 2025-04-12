@@ -5,7 +5,7 @@ This module provides a base class for services that interact with blockchain con
 import logging
 import time
 import functools
-from typing import Any, Dict, Optional, Tuple, Callable, TypeVar, cast
+from typing import Any, Dict, Optional, Tuple, Callable, TypeVar, cast, List
 
 from web3 import Web3
 from web3.contract import Contract
@@ -60,7 +60,7 @@ def retry_with_backoff(max_retries: int = 3, initial_backoff: float = 0.5, backo
 class BaseContractService:
     """Base class for blockchain contract services"""
     
-    def __init__(self, w3: Web3, account: Any, contract: Contract):
+    def __init__(self, w3: Web3, account: Any, contract: Contract, fallback_endpoints: Optional[List[str]] = None):
         """
         Initialize the base contract service.
         
@@ -68,6 +68,7 @@ class BaseContractService:
             w3: Web3 instance
             account: Account to use for transactions
             contract: Contract instance
+            fallback_endpoints: Optional list of fallback RPC endpoints
         """
         self.w3 = w3
         self.account = account
@@ -75,7 +76,12 @@ class BaseContractService:
         
         # Initialize nonce manager and rate limiter
         self.nonce_manager = NonceManager(self.w3, self.account.address)
-        self.rate_limiter = RateLimiter(max_requests=5, refill_rate=1.0, refill_interval=1.0)
+        self.rate_limiter = RateLimiter(
+            max_requests=5, 
+            refill_rate=1.0, 
+            refill_interval=1.0,
+            fallback_endpoints=fallback_endpoints
+        )
         
         # Transaction tracking
         self.pending_transactions = {}
@@ -499,12 +505,17 @@ class BaseContractService:
                     error_category = "rate_limited"
                     logger.error("Rate limit exceeded. The RPC provider is throttling requests.")
                 
+                # Format a more user-friendly error message for rate limiting
+                error_message = str(error_message)
+                if "429" in error_message or "Too Many Requests" in error_message:
+                    error_message = "Blockchain service rate limit exceeded. Your contribution is valid, but rewards will be processed later."
+                
                 return {
                     'status': 'error',
                     'error': error_message,
                     'error_category': error_category,
-                    'tx_hash': tx_hash,
                     'timestamp': int(time.time()),
+                    'tx_hash': tx_hash,
                     'details': details
                 }
         except Exception as e:
@@ -630,3 +641,146 @@ class BaseContractService:
                     })
                 
         return transactions
+
+    @retry_with_backoff(max_retries=3)
+    def _prepare_transaction_and_get_hash(self, tx_data: TxParams, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Prepares and sends a transaction, returning only the hash without waiting for confirmation.
+        This is useful for getting a transaction hash quickly to return to clients.
+        
+        Args:
+            tx_data: Transaction data
+            details: Optional transaction details for logging
+            
+        Returns:
+            Dict with transaction hash and status information
+        """
+        tx_hash = None
+        try:
+            # Add nonce management
+            if 'nonce' not in tx_data:
+                # Get the latest nonce for this account
+                tx_data['nonce'] = self.w3.eth.get_transaction_count(self.account.address)
+            
+            # Log the transaction details before sending
+            function_name = details.get('function', 'unknown') if details else 'unknown'
+            logger.info(f"Preparing transaction for function: {function_name}")
+            logger.info(f"Transaction details:\n" + 
+                       f"From: {tx_data.get('from', self.account.address)}\n" +
+                       f"To: {tx_data.get('to', 'Not specified')}\n" +
+                       f"Gas: {tx_data.get('gas', 'Not specified')}\n" +
+                       f"Gas Price: {Web3.from_wei(tx_data.get('gasPrice', 0), 'gwei')} gwei\n" +
+                       f"Nonce: {tx_data.get('nonce', 'Not specified')}")
+            
+            start_time = time.time()
+            
+            # Sign the transaction with the account's private key
+            logger.info("Signing transaction...")
+            signed_tx = self.account.sign_transaction(tx_data)
+            logger.debug(f"Transaction signed successfully")
+            
+            try:
+                # Use rate limiter to prevent 429 errors when sending raw transaction
+                def send_tx():
+                    # Make sure we're using the correct property (raw_transaction)
+                    return self.w3.eth.send_raw_transaction(signed_tx.raw_transaction).hex()
+                
+                # Execute the send_tx function with rate limiting
+                tx_hash = self.rate_limiter.execute_with_rate_limit(send_tx)
+                logger.info(f"Transaction sent with hash: {tx_hash}")
+                
+                # Store initial transaction details before confirmation
+                if details and 'address' in details:
+                    address = details['address']
+                    if address not in self.pending_transactions:
+                        self.pending_transactions[address] = []
+                    self.pending_transactions[address].append(tx_hash)
+                    # Store initial transaction details
+                    self.transaction_details[tx_hash] = {
+                        "address": address,
+                        "function": details.get('function', 'unknown'),
+                        "timestamp": int(time.time()),
+                        "status": "pending",
+                        "transaction_found": True,
+                        "gas_limit": tx_data.get('gas', 0),
+                        "gas_price": tx_data.get('gasPrice', 0),
+                        "nonce": tx_data.get('nonce', 0),
+                        "error": None
+                    }
+                
+                # Prepare a result with just the transaction hash and basic info
+                result = {
+                    'status': 'pending',
+                    'tx_hash': tx_hash,
+                    'timestamp': int(time.time()),
+                    'message': 'Transaction submitted and pending confirmation',
+                    'nonce': tx_data.get('nonce', 0)
+                }
+                
+                # Add transaction details if provided
+                if details:
+                    result['details'] = details
+                    
+                # Add gas price information based on transaction type
+                if 'gasPrice' in tx_data:
+                    result['gas_price'] = Web3.from_wei(tx_data['gasPrice'], 'gwei')
+                elif 'maxFeePerGas' in tx_data:
+                    result['max_fee_per_gas'] = Web3.from_wei(tx_data['maxFeePerGas'], 'gwei')
+                    result['max_priority_fee_per_gas'] = Web3.from_wei(tx_data['maxPriorityFeePerGas'], 'gwei')
+                    result['transaction_type'] = 'EIP-1559'
+                
+                return result
+                
+            except Exception as e:
+                error_msg = f"Failed to send raw transaction: {str(e)}"
+                logger.error(error_msg)
+                
+                # Check if this is a nonce error and handle it
+                if "nonce" in str(e).lower() and "low" in str(e).lower():
+                    logger.warning("Nonce too low error detected, handling with nonce manager")
+                    new_nonce = self.nonce_manager.handle_nonce_error(str(e))
+                    logger.info(f"Updated nonce to {new_nonce}, please retry the transaction")
+                    
+                    # Return a specific error that the API can handle for retries
+                    return {
+                        'status': 'error',
+                        'error': error_msg,
+                        'error_category': 'nonce_too_low',
+                        'tx_hash': None,
+                        'timestamp': int(time.time()),
+                        'details': details
+                    }
+                elif "already known" in str(e).lower() or "already exists" in str(e).lower():
+                    # Handle duplicate transaction
+                    logger.warning("Transaction already in the mempool. This is not an error, but a duplicate transaction.")
+                    # Try to extract the transaction hash from the error message
+                    import re
+                    hash_match = re.search(r'0x[a-fA-F0-9]{64}', str(e))
+                    if hash_match:
+                        tx_hash = hash_match.group(0)
+                        logger.info(f"Extracted existing transaction hash: {tx_hash}")
+                        # Return with this hash
+                        return {
+                            'status': 'pending',
+                            'tx_hash': tx_hash,
+                            'timestamp': int(time.time()),
+                            'message': 'Transaction already in mempool',
+                            'details': details
+                        }
+                    else:
+                        # If we can't extract the hash, raise the error
+                        raise ValueError(error_msg)
+                else:
+                    # For other errors, raise the exception
+                    raise ValueError(error_msg)
+                
+        except Exception as e:
+            logger.error(f"Error preparing transaction: {str(e)}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'error_category': 'unexpected_error',
+                'tx_hash': None,
+                'timestamp': int(time.time()),
+                'details': details
+            }

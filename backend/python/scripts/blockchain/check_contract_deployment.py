@@ -10,6 +10,7 @@ from web3 import Web3
 
 # Add the src directory to the path so we can import our modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+print(sys.path)
 
 from core.config import settings
 from services.blockchain.core import get_blockchain_service

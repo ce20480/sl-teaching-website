@@ -4,6 +4,12 @@ import { config } from "@/config";
 import { authenticateJWT } from "../middleware/auth";
 import { handleErrors } from "../middleware/errorHandler";
 import { logRequest } from "../middleware/logger";
+import {
+  streamingLimiter,
+  apiLimiter,
+  statusLimiter,
+  uploadLimiter,
+} from "../middleware/rateLimiter";
 import multer from "multer";
 import FormData from "form-data";
 
@@ -12,6 +18,13 @@ const router = express.Router();
 // Configuration for Python backend
 const PYTHON_SERVICE_URL = config.pythonApiUrl;
 
+// Configure axios with higher timeouts and no rate limiting for large uploads
+// const pythonClient = axios.create({
+//   timeout: 60000, // 60 seconds
+//   maxContentLength: Infinity,
+//   maxBodyLength: Infinity,
+// });
+
 // Configure multer for temporary storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -19,6 +32,21 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit (matching Python backend)
   },
 });
+
+// Enhanced logging for file uploads
+const logFileUpload = (
+  req: Request,
+  file: Express.Multer.File,
+  address?: string,
+  context?: string
+) => {
+  console.log(`[Express] File upload received:
+    - Filename: ${file.originalname}
+    - Size: ${file.size} bytes
+    - MIME type: ${file.mimetype}
+    - User address: ${address || "Not provided"}
+    - Context: ${context || "Not provided"}`);
+};
 
 // Helper function to proxy storage requests to Python backend
 const proxyStorageRequest = async (
@@ -29,6 +57,9 @@ const proxyStorageRequest = async (
   try {
     const url = `${PYTHON_SERVICE_URL}/storage${req.path}`;
     const method = req.method.toLowerCase();
+    console.log(
+      `[Express] Proxying ${method.toUpperCase()} request to: ${url}`
+    );
 
     let requestConfig: any = {
       method,
@@ -49,13 +80,22 @@ const proxyStorageRequest = async (
     }
 
     const response = await axios(requestConfig);
+    console.log(
+      `[Express] Proxy response received with status: ${response.status}`
+    );
     return res.status(response.status).json(response.data);
   } catch (error: any) {
     console.error(
-      `Error proxying to Python storage endpoint: ${error.message}`
+      `[Express] Error proxying to Python storage endpoint: ${error.message}`,
+      error.response?.data || ""
     );
     return res.status(error.response?.status || 500).json({
-      error: error.response?.data || "Failed to process storage request",
+      success: false,
+      error:
+        error.response?.data?.detail ||
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to process storage request",
     });
   }
 };
@@ -69,12 +109,14 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ error: "No file provided" });
+        console.error("[Express] Upload error: No file provided");
+        return res.status(400).json({
+          success: false,
+          error: "No file provided",
+        });
       }
 
-      console.log(
-        `Received file: ${req.file.originalname}, forwarding to Python backend`
-      );
+      logFileUpload(req, req.file, req.body.wallet_address);
 
       // Create form data to send to Python backend
       const formData = new FormData();
@@ -82,6 +124,13 @@ router.post(
         filename: req.file.originalname,
         contentType: req.file.mimetype,
       });
+
+      // Add wallet address if provided
+      if (req.body.wallet_address) {
+        formData.append("wallet_address", req.body.wallet_address);
+      }
+
+      console.log(`[Express] Forwarding upload to Python backend`);
 
       // Forward to Python backend
       const response = await axios.post(
@@ -94,39 +143,67 @@ router.post(
               Authorization: req.headers.authorization,
             }),
           },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
         }
       );
 
-      return res.status(response.status).json(response.data);
+      console.log(
+        `[Express] Upload response received with status: ${response.status}`
+      );
+      return res.status(response.status).json({
+        success: true,
+        ...response.data,
+      });
     } catch (error: any) {
-      console.error(`Error uploading file: ${error.message}`);
+      console.error(`[Express] Upload error: ${error.message}`);
+      console.error(error.response?.data || error);
+
       return res.status(error.response?.status || 500).json({
-        error: error.response?.data || "Failed to upload file",
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to upload file",
       });
     }
   }
 );
 
-// Contribution upload route
+// Staged contribution upload - Phase 1: Evaluate
 router.post(
-  "/contribution",
+  "/evaluate",
   logRequest,
   authenticateJWT,
+  uploadLimiter,
   upload.single("file"),
   async (req: Request, res: Response) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded" });
+        console.error("[Express] Evaluation error: No file uploaded");
+        return res.status(400).json({
+          success: false,
+          error: "No file uploaded",
+        });
       }
 
       const user_address = req.body.user_address;
       if (!user_address) {
-        return res.status(400).json({ error: "User address is required" });
+        console.error("[Express] Evaluation error: No user address provided");
+        return res.status(400).json({
+          success: false,
+          error: "User address is required",
+        });
       }
 
-      console.log(`Processing contribution from user: ${user_address}`);
+      logFileUpload(req, req.file, user_address, "evaluation");
+
+      // Check for landmarks from client-side detection
+      const landmarks = req.body.landmarks;
+      if (landmarks) {
+        console.log(
+          `[Express] Received hand landmarks from client-side detection`
+        );
+      }
 
       // Create form data to send to Python backend
       const formData = new FormData();
@@ -136,9 +213,18 @@ router.post(
       });
       formData.append("user_address", user_address);
 
+      // Add landmarks if provided
+      if (landmarks) {
+        formData.append("landmarks", landmarks);
+      }
+
+      console.log(
+        `[Express] Forwarding contribution to Python evaluation endpoint`
+      );
+
       // Forward to Python backend
       const response = await axios.post(
-        `${PYTHON_SERVICE_URL}/storage/contribution`,
+        `${PYTHON_SERVICE_URL}/storage/evaluate`,
         formData,
         {
           headers: {
@@ -147,16 +233,206 @@ router.post(
               Authorization: req.headers.authorization,
             }),
           },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
         }
       );
 
+      console.log(`[Express] Evaluation response received:`, response.data);
+
+      // Ensure response has success field
+      if (response.data && !response.data.hasOwnProperty("success")) {
+        response.data.success = true;
+      }
+
       return res.status(response.status).json(response.data);
     } catch (error: any) {
-      console.error(`Error uploading contribution: ${error.message}`);
+      console.error(`[Express] Evaluation error: ${error.message}`);
+      console.error(error.response?.data || error);
+
       return res.status(error.response?.status || 500).json({
-        error: error.response?.data || "Failed to upload contribution",
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to evaluate contribution",
+      });
+    }
+  }
+);
+
+// Staged contribution upload - Phase 2: Upload
+router.post(
+  "/upload/:taskId",
+  logRequest,
+  authenticateJWT,
+  uploadLimiter,
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      const taskId = req.params.taskId;
+
+      if (!req.file) {
+        console.error("[Express] Upload error: No file uploaded");
+        return res.status(400).json({
+          success: false,
+          error: "No file uploaded",
+        });
+      }
+
+      const user_address = req.body.user_address;
+      if (!user_address) {
+        console.error("[Express] Upload error: No user address provided");
+        return res.status(400).json({
+          success: false,
+          error: "User address is required",
+        });
+      }
+
+      const content_hash = req.body.content_hash;
+      if (!content_hash) {
+        console.error("[Express] Upload error: No content hash provided");
+        return res.status(400).json({
+          success: false,
+          error: "Content hash is required to verify file integrity",
+        });
+      }
+
+      logFileUpload(req, req.file, user_address, "upload");
+
+      // Create form data to send to Python backend
+      const formData = new FormData();
+      formData.append("file", req.file.buffer, {
+        filename: req.file.originalname,
+        contentType: req.file.mimetype,
+      });
+      formData.append("user_address", user_address);
+      formData.append("content_hash", content_hash);
+
+      console.log(
+        `[Express] Forwarding file to Python upload endpoint for task ${taskId}`
+      );
+
+      // Forward to Python backend
+      const response = await axios.post(
+        `${PYTHON_SERVICE_URL}/storage/upload/${taskId}`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            ...(req.headers.authorization && {
+              Authorization: req.headers.authorization,
+            }),
+          },
+        }
+      );
+
+      console.log(`[Express] Upload response received:`, response.data);
+
+      // Check for duplicate files
+      if (
+        response.data?.duplicate ||
+        (response.data?.error && response.data.error.includes("duplicate")) ||
+        (response.data?.status === "rejected" &&
+          response.data?.message?.includes("duplicate"))
+      ) {
+        console.log(`[Express] Duplicate file detected for task ${taskId}`);
+
+        return res.status(200).json({
+          success: false,
+          error:
+            "This file has already been uploaded. Please try a different image.",
+          duplicate: true,
+          message: "Duplicate file detected. Please try a different image.",
+          status: "rejected",
+        });
+      }
+
+      // Ensure response has success field
+      if (response.data && !response.data.hasOwnProperty("success")) {
+        response.data.success = true;
+      }
+
+      return res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[Express] Upload error: ${error.message}`);
+      console.error(error.response?.data || error);
+
+      // Check for duplicate file indicators in error response
+      const errorData = error.response?.data;
+      if (
+        errorData?.duplicate ||
+        (errorData?.error && errorData.error.includes("duplicate")) ||
+        (errorData?.message && errorData.message.includes("duplicate"))
+      ) {
+        return res.status(200).json({
+          success: false,
+          error:
+            "This file has already been uploaded. Please try a different image.",
+          duplicate: true,
+          message: "Duplicate file detected. Please try a different image.",
+          status: "rejected",
+        });
+      }
+
+      return res.status(error.response?.status || 500).json({
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to upload contribution",
+      });
+    }
+  }
+);
+
+// Process rewards for a contribution - Phase 3: Rewards
+router.post(
+  "/reward/:taskId",
+  logRequest,
+  authenticateJWT,
+  apiLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const taskId = req.params.taskId;
+      const userAddress =
+        req.body.user_address || req.body.wallet_address || req.body.address;
+
+      console.log(`[Express] Processing rewards for task: ${taskId}`);
+      console.log(`[Express] User address: ${userAddress}`);
+
+      // Forward the request to the backend
+      const response = await axios.post(
+        `${PYTHON_SERVICE_URL}/storage/reward/${taskId}`,
+        {
+          user_address: userAddress,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: req.headers.authorization,
+          },
+        }
+      );
+
+      console.log(
+        `[Express] Reward response for task ${taskId}:`,
+        response.data
+      );
+
+      // Return the backend response
+      return res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(
+        `[Express] Error processing reward for task ${req.params.taskId}:`,
+        error
+      );
+
+      // Return error response
+      return res.status(error.response?.status || 500).json({
+        success: false,
+        error: error.response?.data?.error || error.message,
+        message: error.response?.data?.message || "Failed to process reward",
       });
     }
   }
@@ -164,16 +440,18 @@ router.post(
 
 // Get evaluation status
 router.get(
-  "/evaluation/:taskId",
+  "/contribution/status/:taskId",
   logRequest,
   authenticateJWT,
+  statusLimiter,
   async (req: Request, res: Response) => {
     try {
       const taskId = req.params.taskId;
+      console.log(`[Express] Fetching evaluation status for task: ${taskId}`);
 
       // Forward to Python backend
       const response = await axios.get(
-        `${PYTHON_SERVICE_URL}/storage/evaluation/${taskId}`,
+        `${PYTHON_SERVICE_URL}/storage/contribution/status/${taskId}`,
         {
           headers: {
             ...(req.headers.authorization && {
@@ -183,29 +461,145 @@ router.get(
         }
       );
 
+      console.log(
+        `[Express] Evaluation status received for task ${taskId}:`,
+        response.data.status || "unknown status"
+      );
+
       return res.status(response.status).json(response.data);
     } catch (error: any) {
-      console.error(`Error getting evaluation status: ${error.message}`);
+      console.error(
+        `[Express] Error getting evaluation status: ${error.message}`
+      );
+      console.error(error.response?.data || error);
+
       return res.status(error.response?.status || 500).json({
-        error: error.response?.data || "Failed to get evaluation status",
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to get evaluation status",
       });
     }
   }
 );
 
-// List files
+// Server-Sent Events for evaluation status
+router.get(
+  "/evaluation/status/stream/:task_id",
+  logRequest,
+  authenticateJWT,
+  streamingLimiter,
+  async (req: Request, res: Response) => {
+    const { task_id } = req.params;
+
+    if (!task_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Task ID is required",
+      });
+    }
+
+    console.log(`[Express] Starting SSE stream for task: ${task_id}`);
+
+    // Set up SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    // Create proxy request to Python backend
+    const forwardSSE = async () => {
+      try {
+        // Get status from Python backend
+        const response = await axios.get(
+          `${PYTHON_SERVICE_URL}/storage/evaluation/status/${task_id}`,
+          {
+            headers: {
+              ...(req.headers.authorization && {
+                Authorization: req.headers.authorization,
+              }),
+            },
+          }
+        );
+
+        // Format and send as SSE
+        const data = JSON.stringify(response.data);
+        res.write(`data: ${data}\n\n`);
+
+        // If the task is completed, end the stream
+        if (response.data.completed) {
+          console.log(`[Express] Task ${task_id} completed, ending SSE stream`);
+          clearInterval(intervalId);
+          res.end();
+          return;
+        }
+      } catch (error: any) {
+        console.error(
+          `[Express] SSE error for task ${task_id}: ${error.message}`
+        );
+
+        // Send error as SSE
+        const errorData = {
+          task_id,
+          status: "error",
+          message: "Error fetching evaluation status",
+          error: error.message,
+          completed: false,
+        };
+
+        res.write(`data: ${JSON.stringify(errorData)}\n\n`);
+
+        // Don't end the stream on error, let it retry
+      }
+    };
+
+    // Send initial status
+    await forwardSSE();
+
+    // Poll for updates every second
+    const intervalId = setInterval(forwardSSE, 1000);
+
+    // Handle client disconnect
+    req.on("close", () => {
+      console.log(
+        `[Express] Client disconnected from SSE stream for task: ${task_id}`
+      );
+      clearInterval(intervalId);
+    });
+  }
+);
+
 router.get(
   "/files",
   logRequest,
   authenticateJWT,
-  handleErrors(proxyStorageRequest)
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      console.log(`[Express] Listing files`);
+      await proxyStorageRequest(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  }
 );
 
-// Proxy any other routes to Python backend
+// Error handler specific to storage routes
+router.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error(`[Express] Storage route error:`, err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || "An unexpected error occurred",
+  });
+});
+
+// Proxy any other routes to Python backend with general API limiter
 router.all(
   "/*",
   logRequest,
   authenticateJWT,
+  apiLimiter,
   handleErrors(proxyStorageRequest)
 );
 

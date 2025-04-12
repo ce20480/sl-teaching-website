@@ -9,12 +9,6 @@ interface FileUploadProps {
   maxSize?: number;
 }
 
-interface EvaluationStatus {
-  status: "pending" | "processing" | "approved" | "rejected";
-  score?: number;
-  feedback?: string;
-}
-
 export function FileUpload({
   onFileSelect,
   onRemove,
@@ -22,8 +16,6 @@ export function FileUpload({
   maxSize = 5 * 1024 * 1024, // 5MB default
 }: FileUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [evaluationStatus, setEvaluationStatus] =
-    useState<EvaluationStatus | null>(null);
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -31,7 +23,6 @@ export function FileUpload({
       if (file) {
         setSelectedFile(file);
         onFileSelect(file);
-        setEvaluationStatus(null);
       }
     },
     [onFileSelect]
@@ -39,7 +30,6 @@ export function FileUpload({
 
   const handleRemove = () => {
     setSelectedFile(null);
-    setEvaluationStatus(null);
     onRemove();
   };
 
@@ -53,9 +43,10 @@ export function FileUpload({
   // Helper function to format accept types for display
   const formatAcceptedTypes = () => {
     if (!accept) return null;
-    return Object.entries(accept)
-      .map(([mimeType]) => mimeType.split("/")[1].toUpperCase())
-      .join(", ");
+    // return Object.entries(accept)
+    //   .map(([mimeType]) => mimeType.split("/")[1].toUpperCase())
+    //   .join(", ");
+    return accept["image/*"].join(", ");
   };
 
   return (
@@ -105,30 +96,6 @@ export function FileUpload({
           </div>
         )}
       </div>
-
-      {evaluationStatus && (
-        <div
-          className={`p-4 rounded-lg ${
-            evaluationStatus.status === "approved"
-              ? "bg-green-50 text-green-700"
-              : evaluationStatus.status === "rejected"
-              ? "bg-red-50 text-red-700"
-              : "bg-blue-50 text-blue-700"
-          }`}
-        >
-          <p className="font-medium">
-            Status:{" "}
-            {evaluationStatus.status.charAt(0).toUpperCase() +
-              evaluationStatus.status.slice(1)}
-          </p>
-          {evaluationStatus.score && (
-            <p className="text-sm">Quality Score: {evaluationStatus.score}</p>
-          )}
-          {evaluationStatus.feedback && (
-            <p className="text-sm mt-1">{evaluationStatus.feedback}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

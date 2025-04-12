@@ -8,6 +8,7 @@ from typing import Any, Dict
 import time
 from web3 import Web3
 from eth_account import Account
+import asyncio
 
 from ..blockchain.base_contract import BaseContractService
 from ...core.config import settings
@@ -40,7 +41,45 @@ class XpRewardService(BaseContractService):
         Args:
             blockchain: BlockchainService instance
         """
-        w3 = Web3(Web3.HTTPProvider(settings.FILECOIN_TESTNET_RPC_URL))
+        # List of fallback RPC endpoints for Filecoin testnet
+        rpc_endpoints = [
+            settings.FILECOIN_TESTNET_RPC_URL,
+            "https://rpc.ankr.com/filecoin_testnet",
+            "https://filecoin-calibration.chainup.net/rpc/v1", 
+            "https://calibration.filfox.info/rpc/v1", 
+            "https://filecoin-calibration.chainstacklabs.com/rpc/v1"
+        ]
+        
+        # Try connecting to each endpoint
+        w3 = None
+        connected = False
+        connection_errors = []
+        
+        for endpoint in rpc_endpoints:
+            try:
+                logger.info(f"Attempting to connect to RPC endpoint: {endpoint}")
+                w3_candidate = Web3(Web3.HTTPProvider(endpoint))
+                
+                # Check if connection is successful
+                if w3_candidate.is_connected():
+                    logger.info(f"Successfully connected to {endpoint}")
+                    w3 = w3_candidate
+                    connected = True
+                    break
+                else:
+                    error_msg = f"Failed to connect to {endpoint} - provider is not connected"
+                    logger.warning(error_msg)
+                    connection_errors.append(error_msg)
+            except Exception as e:
+                error_msg = f"Error connecting to {endpoint}: {str(e)}"
+                logger.warning(error_msg)
+                connection_errors.append(error_msg)
+        
+        if not connected:
+            error_details = "\n".join(connection_errors)
+            logger.error(f"Failed to connect to any RPC endpoint. Errors:\n{error_details}")
+            raise ConnectionError(f"Could not connect to any Filecoin testnet RPC endpoint")
+        
         account = Account.from_key(settings.BLOCKCHAIN_PRIVATE_KEY)
 
         # Use the ASLExperienceToken contract
@@ -56,7 +95,17 @@ class XpRewardService(BaseContractService):
             logger.warning(f"Error loading contract from blockchain service: {str(e)}. Using fallback ABI.")
         
         # Initialize the base class
-        super().__init__(w3, account, contract)
+        super().__init__(
+            w3, 
+            account, 
+            contract, 
+            fallback_endpoints=[
+                "https://rpc.ankr.com/filecoin_testnet",
+                "https://filecoin-calibration.chainup.net/rpc/v1", 
+                "https://calibration.filfox.info/rpc/v1", 
+                "https://filecoin-calibration.chainstacklabs.com/rpc/v1"
+            ]
+        )
         
         # Validate contract has expected functions
         self._validate_contract_functions()
@@ -519,10 +568,231 @@ class XpRewardService(BaseContractService):
             
             # Call the balanceOf function
             return self.contract.functions.balanceOf(address).call()
+        
         except Exception as e:
             logger.error(f"Error getting token balance: {str(e)}")
             raise
 
+    def prepare_award_xp_tx(self, address: str, activity_type: ActivityType) -> Dict[str, Any]:
+        """
+        Prepares and submits a transaction to award XP, returning only the hash without waiting for confirmation.
+        This is useful for getting a transaction hash quickly to return to clients.
+        
+        Args:
+            address: Wallet address to award tokens to
+            activity_type: Type of activity being rewarded
+            
+        Returns:
+            Dict with transaction hash and status information
+        """
+        try:
+            logger.info(f"Preparing XP award transaction for {address} (activity type {activity_type})")
+            # Validate address
+            if not Web3.is_address(address):
+                raise ValueError(f"Invalid Ethereum address: {address}")
+            
+            # Convert to checksum address
+            address = Web3.to_checksum_address(address)
+            
+            # Check for rate limiting in the blockchain provider
+            try:
+                # Simple check to ensure provider is responsive
+                block_number = self.w3.eth.block_number
+                logger.info(f"Current block number: {block_number}")
+            except Exception as provider_error:
+                error_str = str(provider_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited by blockchain provider: {error_str}")
+                    raise RateLimitException(f"Blockchain provider rate limited: {error_str}")
+                logger.warning(f"Provider check failed: {error_str}")
+            
+            # Check if we have minter role
+            try:
+                has_minter_role = self.check_minter_role()
+                if not has_minter_role:
+                    logger.warning(f"Account {self.account.address} does not have MINTER_ROLE required to award XP")
+                    return {
+                        'status': 'error',
+                        'error': "Account does not have MINTER_ROLE required to award XP",
+                        'error_category': 'permission_error',
+                        'tx_hash': None,
+                        'timestamp': int(time.time())
+                    }
+            except RateLimitException as rl_error:
+                logger.warning(f"Rate limited while checking minter role: {rl_error}")
+                return {
+                    'status': 'error',
+                    'error': str(rl_error),
+                    'error_category': 'rate_limit',
+                    'is_rate_limited': True,
+                    'tx_hash': None,
+                    'timestamp': int(time.time()),
+                    'message': "XP will be awarded when blockchain rate limits clear"
+                }
+            except Exception as e:
+                logger.error(f"Error checking minter role: {str(e)}")
+                # Continue anyway, the transaction will fail if we don't have permission
+            
+            # Estimate gas for the transaction
+            logger.info(f"Estimating gas for awardXP transaction")
+            func = self.contract.functions.awardXP(
+                address, 
+                int(activity_type)
+            )
+            
+            try:
+                gas_estimate = func.estimate_gas({'from': self.account.address})
+                # Add some buffer to the gas estimate
+                gas_limit = int(gas_estimate * 1.2)
+                logger.info(f"Estimated gas: {gas_estimate}, using gas limit: {gas_limit}")
+            except Exception as gas_error:
+                error_str = str(gas_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited during gas estimation: {error_str}")
+                    raise RateLimitException(f"Blockchain provider rate limited during gas estimation: {error_str}")
+                
+                logger.warning(f"Gas estimation failed: {error_str}. Using default gas limit.")
+                gas_limit = 300000  # Default gas limit
+            
+            # Get the current gas price
+            try:
+                gas_price = self.w3.eth.gas_price
+                logger.info(f"Current gas price: {Web3.from_wei(gas_price, 'gwei')} gwei")
+            except Exception as gas_price_error:
+                error_str = str(gas_price_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited when getting gas price: {error_str}")
+                    raise RateLimitException(f"Blockchain provider rate limited when getting gas price: {error_str}")
+                
+                logger.warning(f"Failed to get gas price: {error_str}. Using default.")
+                gas_price = self.w3.to_wei('30', 'gwei')  # Default gas price
+            
+            # Get the next nonce
+            try:
+                nonce = self.w3.eth.get_transaction_count(self.account.address)
+            except Exception as nonce_error:
+                error_str = str(nonce_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited when getting nonce: {error_str}")
+                    raise RateLimitException(f"Blockchain provider rate limited when getting nonce: {error_str}")
+                
+                logger.warning(f"Failed to get nonce: {error_str}. Using default.")
+                nonce = 0  # This will likely fail, but we'll handle it in the transaction sending
+            
+            # Build transaction using the contract functions interface directly
+            # Get EIP-1559 fee parameters
+            try:
+                max_fee, priority_fee, base_fee, use_eip1559 = self._get_eip1559_fees()
+                logger.info(f"EIP-1559 fees calculated: base_fee={Web3.from_wei(base_fee, 'gwei')} gwei, " +
+                          f"priority_fee={Web3.from_wei(priority_fee, 'gwei')} gwei, " +
+                          f"max_fee={Web3.from_wei(max_fee, 'gwei')} gwei")
+            except Exception as fee_error:
+                error_str = str(fee_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited when calculating fees: {error_str}")
+                    raise RateLimitException(f"Blockchain provider rate limited when calculating fees: {error_str}")
+                
+                logger.warning(f"Failed to calculate EIP-1559 fees: {error_str}. Using legacy transaction.")
+                use_eip1559 = False
+            
+            # Build the transaction data based on EIP-1559 support
+            if use_eip1559:
+                # For EIP-1559 transactions
+                tx_data = func.build_transaction({
+                    'chainId': self.w3.eth.chain_id,
+                    'from': self.account.address,
+                    'gas': gas_limit,
+                    'maxFeePerGas': max_fee,
+                    'maxPriorityFeePerGas': priority_fee,
+                    'nonce': nonce
+                })
+                logger.info(f"Using EIP-1559 transaction with maxFeePerGas: {Web3.from_wei(max_fee, 'gwei')} gwei, " +
+                           f"maxPriorityFeePerGas: {Web3.from_wei(priority_fee, 'gwei')} gwei")
+            else:
+                # For legacy transactions
+                tx_data = func.build_transaction({
+                    'chainId': self.w3.eth.chain_id,
+                    'from': self.account.address,
+                    'gas': gas_limit,
+                    'gasPrice': gas_price,
+                    'nonce': nonce
+                })
+            
+            # Try to simulate the transaction, but continue even if it fails in case of rate limiting
+            try:
+                self._simulate_transaction(tx_data)
+            except Exception as sim_error:
+                error_str = str(sim_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    logger.warning(f"Rate limited during transaction simulation: {error_str}")
+                    # Continue anyway, we'll catch any issues when actually sending
+                else:
+                    logger.warning(f"Transaction simulation failed: {error_str}. Proceeding anyway.")
+            
+            # Get the current balance before the transaction (best effort)
+            try:
+                balance_before = self.contract.functions.balanceOf(address).call()
+            except Exception as balance_error:
+                logger.warning(f"Could not get balance before transaction: {str(balance_error)}")
+                balance_before = None
+            
+            # Send the transaction - just get the hash, don't wait for receipt
+            tx_details = {
+                'function': 'awardXP',
+                'activity_type': int(activity_type),
+                'activity_name': activity_type.name,
+                'address': address,
+                'balance_before': balance_before,
+                'amount': 10  # Default XP amount for a contribution
+            }
+            
+            # Use the specialized method to get just the transaction hash
+            result = self._prepare_transaction_and_get_hash(tx_data, tx_details)
+            
+            # If we got a transaction hash, format the response with additional details
+            if result.get('status') != 'error' and result.get('tx_hash'):
+                result['transaction_hash'] = result['tx_hash']  # Duplicate for consistency with API
+                result['amount'] = 10  # Default amount for dataset contribution
+                result['activity_type'] = int(activity_type)
+                result['success'] = True  # Mark as success even though it's just pending
+            
+            return result
+            
+        except RateLimitException as rl_error:
+            logger.error(f"Rate limited by blockchain provider: {rl_error}")
+            return {
+                'status': 'error',
+                'error': str(rl_error),
+                'error_category': 'rate_limit',
+                'is_rate_limited': True,
+                'tx_hash': None,
+                'timestamp': int(time.time()),
+                'message': "XP will be awarded when blockchain rate limits clear"
+            }
+        except Exception as e:
+            logger.error(f"Error preparing XP award transaction: {str(e)}")
+            error_str = str(e).lower()
+            is_rate_limited = "rate" in error_str or "429" in error_str or "too many requests" in error_str
+            
+            return {
+                'status': 'error',
+                'error': str(e),
+                'error_category': 'unexpected_error' if not is_rate_limited else 'rate_limit',
+                'is_rate_limited': is_rate_limited,
+                'tx_hash': None,
+                'timestamp': int(time.time()),
+                'message': "XP award preparation failed" if not is_rate_limited else "XP will be awarded when blockchain rate limits clear",
+                'details': {
+                    'function': 'awardXP',
+                    'activity_type': int(activity_type) if isinstance(activity_type, ActivityType) else activity_type,
+                    'address': address
+                }
+            }
+
 # Dependency provider for XpRewardService
 def get_xp_reward_service():
     return XpRewardService()
+
+class RateLimitException(Exception):
+    """Exception raised when the blockchain provider rate limits requests"""
+    pass

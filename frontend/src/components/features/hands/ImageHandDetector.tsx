@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { HandLandmarkVisualizer } from "./HandLandmarkVisualizer";
 import { GenericHandDetector } from "./GenericHandDetector";
 import { HandLandmarkerResult } from "@mediapipe/tasks-vision";
@@ -9,12 +9,14 @@ interface ImageHandDetectorProps {
     results: HandLandmarkerResult,
     rawLandmarks?: number[]
   ) => void;
+  onError?: (error: string) => void;
   className?: string;
 }
 
 export function ImageHandDetector({
   imageUrl,
   onHandsDetected,
+  onError,
   className = "",
 }: ImageHandDetectorProps) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -29,9 +31,25 @@ export function ImageHandDetector({
     setResults(detectionResults);
 
     // Extract flat landmarks for potential backend processing
-    const flatLandmarks = detectionResults.landmarks?.[0]
-      ? detectionResults.landmarks[0].map((lm) => [lm.x, lm.y, lm.z]).flat()
-      : undefined;
+    let flatLandmarks = undefined;
+
+    if (detectionResults.landmarks?.[0]?.length > 0) {
+      try {
+        // Convert landmarks to a flat array of coordinates
+        flatLandmarks = detectionResults.landmarks[0]
+          .map((lm) => [lm.x, lm.y, lm.z])
+          .flat();
+
+        // Ensure we have the correct number of elements (21 landmarks x 3 coords = 63 values)
+        if (flatLandmarks.length !== 63) {
+          console.warn(
+            `Unexpected landmark data length: ${flatLandmarks.length} (expected 63)`
+          );
+        }
+      } catch (error) {
+        console.error("Error flattening landmarks:", error);
+      }
+    }
 
     if (onHandsDetected) {
       onHandsDetected(detectionResults, flatLandmarks);
@@ -54,6 +72,7 @@ export function ImageHandDetector({
           mode="IMAGE"
           isActive={true}
           onHandsDetected={handleDetectionResults}
+          onError={onError}
         />
       )}
 

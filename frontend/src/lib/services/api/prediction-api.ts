@@ -19,7 +19,7 @@ export const predictionApi = {
    * @returns Prediction response with letter and confidence
    */
   async predictSign(landmarks: number[]): Promise<PredictionResponse> {
-    const response = await apiClient.post("/api/prediction/predict", {
+    const response = await apiClient.post("/api/prediction/detect", {
       landmarks,
     });
     return response.data;
@@ -29,12 +29,7 @@ export const predictionApi = {
    * Get the model's accuracy and statistics
    * @returns Model stats including accuracy, sample count, etc.
    */
-  async getModelStats(): Promise<{
-    accuracy: number;
-    total_samples: number;
-    last_trained: string;
-    supported_signs: string[];
-  }> {
+  async getModelStats(): Promise<any> {
     const response = await apiClient.get("/api/prediction/stats");
     return response.data;
   },

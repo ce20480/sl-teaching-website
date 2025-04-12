@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from enum import Enum
 import asyncio
 import os
@@ -127,7 +127,8 @@ class EvaluatorService:
         Process a single evaluation task using multiple criteria
         """
         task_id = task["task_id"]
-        file_content = task.get("file_content")
+        file_content = task.get("file_content", None)
+        landmarks = task.get("landmarks", None)
         
         # Create result object if it doesn't exist
         if task_id not in self.evaluations:
@@ -158,7 +159,7 @@ class EvaluatorService:
                 return self.evaluations[task_id]
                 
             # 2. Check if hand landmarks are detectable
-            landmark_result = await self._evaluate_landmarks(file_content)
+            landmark_result = await self._evaluate_landmarks(landmarks)
             if not landmark_result["success"]:
                 self.evaluations[task_id].status = EvaluationStatus.REJECTED
                 self.evaluations[task_id].message = f"Image rejected: {landmark_result['message']}"
@@ -241,46 +242,28 @@ class EvaluatorService:
                 "error": str(e)
             }
     
-    async def _evaluate_landmarks(self, file_content: bytes) -> Dict[str, Any]:
+    async def _evaluate_landmarks(self, landmarks: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate if image contains detectable hand landmarks"""
-        # Skip if ASL service not available
-        if self.asl_service is None:
-            logger.warning("ASL service not available, skipping landmark detection")
-            return {
-                "success": True,
-                "message": "ASL landmark detection skipped (service not available)",
-                "score": 0.5
-            }
-            
         try:
-            # Process image using ASL service
-            result = self.asl_service.process_image(file_content)
+            # Process landmarks using ASL service
+            result = self.asl_service.process_landmarks(landmarks)
             
-            # Check if landmarks were detected
-            if not result.get("detected", False):
+            # Return the result directly from ASL service
+            if not result.get("success", False):
+                logger.warning(f"Landmark evaluation failed: {result.get('message')}")
                 return {
                     "success": False,
-                    "message": "No hand landmarks detected in image",
+                    "message": result.get("message", "Hand landmark detection failed"),
                     "details": result
                 }
                 
-            # Check confidence level
-            confidence = result.get("confidence", 0)
-            if confidence < 0.6:  # Minimum confidence threshold
-                return {
-                    "success": False,
-                    "message": f"Hand landmark detection confidence too low ({confidence:.2f})",
-                    "confidence": confidence,
-                    "details": result
-                }
-                
+            # Successful evaluation
             return {
                 "success": True,
-                "message": "Hand landmarks successfully detected",
-                "landmarks_found": True,
-                "letter": result.get("letter"),
-                "confidence": confidence,
-                "score": confidence  # Use confidence as the score
+                "message": f"Hand landmarks detected, identified as letter '{result.get('letter')}'",
+                "score": result.get("score", 0.5),
+                "confidence": result.get("confidence", 0),
+                "letter": result.get("letter", "unknown")
             }
             
         except Exception as e:
@@ -292,23 +275,33 @@ class EvaluatorService:
             }
     
     async def get_evaluation_status(self, task_id: str) -> EvaluationResult:
-        """
-        Get the current status of an evaluation
-        
-        Args:
-            task_id: Task ID to check
-            
-        Returns:
-            Evaluation result with current status
-        """
+        """Get the status of an evaluation"""
         if task_id not in self.evaluations:
-            # Create a placeholder pending evaluation
             return EvaluationResult(
                 task_id=task_id,
                 status=EvaluationStatus.PENDING,
-                message="Task is queued for processing",
-                completed=False,
-                metadata={}
+                message="Contribution pending evaluation",
+                completed=False
             )
-            
+        return self.evaluations[task_id]
+
+    async def update_evaluation_status(self, task_id: str, updated_result: EvaluationResult) -> EvaluationResult:
+        """
+        Update the status of an evaluation
+        Update the status of apdate
+        
+        Arg
+            task_id: Task ID to update
+            updated_result: Updated result
+        Returns:
+            Updated evaluation result
+        """
+        if task_id not in self.evaluations:
+            logger.warning(f"Attempted to update nonexistent evaluation: {task_id}")
+            logger.warning(f"Attempted to update nonexistent e: {task_id}")
+            return updated_result
+        # Up
+        # Update the stored evaluation
+        self.evaluations[task_id] = updated_result
+        logger.info(f"Updated evaluation status for task {task_id}: {updated_result.status}")
         return self.evaluations[task_id]

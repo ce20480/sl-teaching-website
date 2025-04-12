@@ -76,20 +76,23 @@ class BlurService:
         fm = self.variance_of_laplacian_from_bytes(image_bytes)
         return self.is_blurry(fm, threshold)
 
-# if __name__ == "__main__":
-#     ap = argparse.ArgumentParser()
-#     ap.add_argument("-i", "--image", required=True,
-#         help="path to input image")
-#     ap.add_argument("-t", "--threshold", type=float, default=100.0,
-#         help="focus measures that fall below this value will be considered 'blurry'")
-#     args = vars(ap.parse_args())
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-i", "--image", required=True,
+        help="path to input image")
+    ap.add_argument("-t", "--threshold", type=float, default=100.0,
+        help="focus measures that fall below this value will be considered 'blurry'")
+    args = vars(ap.parse_args())
+    # convert image to bytes
+    with open(args["image"], "rb") as image_file:
+        image_bytes = image_file.read()
     
-#     try:
-#         fm = variance_of_laplacian_from_path(args["image"])
-#         print(f"Focus measure: {fm}")
-#         print(is_blurry(fm, args["threshold"]))
-#     except Exception as e:
-#         print(f"Error: {e}")
+    try:
+        fm = BlurService().variance_of_laplacian_from_bytes(image_bytes)
+        print(f"Focus measure: {fm}")
+        print(BlurService().is_blurry(fm, args["threshold"]))
+    except Exception as e:
+        print(f"Error: {e}")
 
     # for imagePath in paths.list_images(args["images"]):
     #     fm = variance_of_laplacian(imagePath)

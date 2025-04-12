@@ -63,7 +63,7 @@ def initialize_services():
     
     # Create evaluator service if not already registered
     if not container.has(EvaluatorService):
-        evaluator = EvaluatorService()
+        evaluator = EvaluatorService(blur_threshold=35)
         container.register(EvaluatorService, evaluator)
 
     # Create blur service if not already registered
@@ -97,7 +97,7 @@ def initialize_services():
             evaluator=evaluator,
             storage_sdk=storage_sdk,
             reward_service=reward_service,
-            default_bucket=settings.DEFAULT_BUCKET
+            default_bucket=settings.DEFAULT_BUCKET,
         )
         container.register(ContributionService, contribution_service)
     

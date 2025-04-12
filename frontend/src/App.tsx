@@ -8,6 +8,7 @@ import Learn from "./pages/Learn";
 import Profile from "./pages/Profile";
 import { WagmiConfig } from "wagmi";
 import { wagmiConfig } from "@/lib/wagmi";
+import ContributeV2 from "./pages/ContributeV2";
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/translate" element={<Translate />} />
             <Route path="/contribute" element={<Contribute />} />
+            <Route path="/contribute-v2" element={<ContributeV2 />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/learn" element={<Learn />} />
             <Route path="/profile" element={<Profile />} />

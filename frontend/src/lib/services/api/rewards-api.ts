@@ -26,6 +26,33 @@ interface LeaderboardEntry {
   rank: number;
 }
 
+interface BlockchainStatus {
+  success: boolean;
+  connected: boolean;
+  endpoint?: string;
+  chain_id?: number;
+  block_number?: number;
+  gas_price_gwei?: number;
+  account?: string;
+  balance?: number;
+  error?: string;
+}
+
+interface TransactionStatus {
+  success: boolean;
+  tx_hash: string;
+  status: "pending" | "success" | "failed" | "not_found";
+  confirmed: boolean;
+  block_number?: number;
+  block_timestamp?: number;
+  gas_used?: number;
+  effective_gas_price?: number;
+  from?: string;
+  to?: string;
+  error?: string;
+  message?: string;
+}
+
 export const rewardsApi = {
   /**
    * Get user rewards data
@@ -100,5 +127,42 @@ export const rewardsApi = {
       `/api/rewards/achievements/${walletAddress}`
     );
     return response.data;
+  },
+
+  /**
+   * Check the blockchain connection status
+   */
+  async checkBlockchainStatus(): Promise<BlockchainStatus> {
+    try {
+      const response = await apiClient.get("/api/rewards/blockchain/status");
+      return response.data;
+    } catch (error) {
+      console.error("Error checking blockchain status:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Check the status of a blockchain transaction
+   * @param txHash The transaction hash to check
+   * @returns Status of the transaction
+   */
+  async checkTransactionStatus(txHash: string): Promise<TransactionStatus> {
+    try {
+      const response = await apiClient.get(
+        `/api/rewards/transactions/${txHash}`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Error checking transaction status:", error);
+      return {
+        success: false,
+        tx_hash: txHash,
+        status: "not_found",
+        confirmed: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        message: "Failed to retrieve transaction status",
+      };
+    }
   },
 };

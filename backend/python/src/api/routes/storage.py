@@ -1,8 +1,15 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
-from typing import Dict, Any
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form, Body, Depends
+from typing import Dict, Any, Optional
 from ...services.storage.akave_sdk import AkaveError
 from ...services.service_container import get_contribution_service, get_storage_sdk, initialize_services
 import logging
+import traceback
+import json
+import time
+from fastapi.responses import StreamingResponse
+import asyncio
+import hashlib
+from ...schemas.Storage import RewardRequest
 
 # Initialize all services
 initialize_services()
@@ -14,6 +21,7 @@ logger = logging.getLogger(__name__)
 async def upload_file(
     file: UploadFile = File(...),
     user_address: str = Form(...),
+    landmarks: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> Dict[str, Any]:
     """
@@ -21,85 +29,275 @@ async def upload_file(
     1. Evaluate image quality
     2. Upload approved images
     3. Reward users for approved contributions
+    
+    If landmarks are provided from client-side detection, skip landmark detection step.
     """
+    # First check if the file is valid
+    if not file or not file.filename:
+        logger.error("Missing file or filename in upload request")
+        return {
+            "success": False,
+            "error": "No file provided or filename is missing"
+        }
+        
+    # Extract file information for logging/debugging
+    file_size = getattr(file, "size", None)
+    if file_size is None:
+        # Estimate file size if not provided in metadata
+        try:
+            position = await file.seek(0, 2)  # Seek to end
+            file_size = position
+            await file.seek(0)  # Reset position for reading
+        except Exception as e:
+            logger.warning(f"Could not determine file size: {e}")
+            file_size = "unknown"
+    
+    logger.info(f"Processing contribution: {file.filename}, size: {file_size}, type: {file.content_type}")
+    
+    # Validate wallet address
     if not user_address:
-        raise HTTPException(400, "User address is required for rewards")
+        logger.error("User address missing in contribution upload")
+        return {
+            "success": False,
+            "error": "User address is required for rewards"
+        }
     
     logger.info(f"Processing contribution from address: {user_address}")
+    
+    # Process landmarks if provided from client-side detection
+    client_landmarks = None
+    if landmarks:
+        try:
+            client_landmarks = json.loads(landmarks)
+            logger.info(f"Received client-side landmarks with {len(client_landmarks) // 3} points")
+        except Exception as e:
+            logger.warning(f"Failed to parse client landmarks: {e}")
+            # Continue without landmarks rather than failing
     
     # Get contribution service from container    
     contribution_service = get_contribution_service()
     
     try:
-        # 1. Read file contents
-        contents = await file.read()
+        # 1. Read file content
+        try:
+            file_content = await file.read()
+            logger.info(f"Read {len(file_content)} bytes from file {file.filename}")
+        except Exception as read_error:
+            logger.error(f"Failed to read file content: {read_error}")
+            return {
+                "success": False,
+                "error": f"Failed to read file content: {str(read_error)}"
+            }
         
-        # Check file type
-        if not file.content_type.startswith("image/"):
-            raise HTTPException(400, "Only image files are accepted")
-        
-        # 2. Submit contribution to service
-        task_metadata = await contribution_service.submit_contribution(
-            file_content=contents,
-            file_name=file.filename,
-            file_type=file.content_type,
-            user_address=user_address
-        )
-        
-        # Get task ID from metadata
-        task_id = task_metadata["task_id"]
-        
-        # 3. Start evaluation workflow in background
-        background_tasks.add_task(
-            contribution_service.process_evaluation_workflow,
-            task_id,
-            user_address,
-            contents,
-            task_metadata
-        )
-        
-        # 4. Return immediate response with task ID for status tracking
-        return {
-            "success": True,
-            "message": "Contribution submitted for evaluation",
-            "task_id": task_id,
-            "status_endpoint": f"/api/evaluation/status/{task_id}"
-        }
+        # Check if file is actually an image
+        if not file.content_type.startswith('image/'):
+            logger.error(f"Invalid file type: {file.content_type}")
+            return {
+                "success": False,
+                "error": "Only image files are supported"
+            }
+
+        # 2. Submit contribution to get task ID
+        try:
+            task_metadata = await contribution_service.submit_contribution(
+                file_content=file_content,
+                file_name=file.filename,
+                file_type=file.content_type,
+                user_address=user_address,
+                client_landmarks=client_landmarks
+            )
+            
+            # Extract task ID for tracking
+            task_id = task_metadata.get("task_id")
+            if not task_id:
+                logger.error("No task ID returned from contribution submission")
+                return {
+                    "success": False,
+                    "error": "Failed to create evaluation task"
+                }
+                
+            logger.info(f"Created evaluation task ID: {task_id}")
+        except Exception as submit_error:
+            # Check specifically for duplicate file indications
+            if "duplicate" in str(submit_error).lower() or "already uploaded" in str(submit_error).lower():
+                logger.info(f"Duplicate file detected: {file.filename}")
+                return {
+                    "success": False,
+                    "error": "This file has already been uploaded. Please try a different image.",
+                    "duplicate": True,
+                    "message": "Duplicate file detected. Please try a different image."
+                }
+            
+            logger.error(f"Failed to submit contribution: {submit_error}")
+            return {
+                "success": False,
+                "error": f"Failed to submit contribution: {str(submit_error)}"
+            }
         
     except Exception as e:
+        error_stack = traceback.format_exc()
         logger.error(f"Contribution upload error: {str(e)}")
-        raise HTTPException(500, f"Upload failed: {str(e)}")
+        logger.error(error_stack)
+        
+        # Check if it's a duplicate file error that was not caught by the lower-level code
+        if "FileFullyUploaded" in str(e) or "duplicate" in str(e).lower():
+            logger.info(f"Duplicate file detected for {file.filename}")
+            return {
+                "success": False,
+                "error": "This file has already been uploaded. Please try a different image.",
+                "duplicate": True,
+                "message": "Duplicate file detected. Please try a different image."
+            }
+            
+        # Return detailed error information
+        return {
+            "success": False,
+            "error": f"Upload failed: {str(e)}",
+            "details": {
+                "error_type": type(e).__name__,
+                "file_name": file.filename if file else "unknown",
+                "file_type": file.content_type if file else "unknown",
+                "user_address": user_address
+            }
+        }
 
-@router.get("/evaluation/status/{task_id}")
-async def get_evaluation_status(task_id: str) -> Dict[str, Any]:
+@router.get("/contribution/status/{task_id}")
+async def get_evaluation_status(
+    task_id: str, 
+    tx_hash: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Get the status of an evaluation task with detailed phase information
+    
+    Arguments:
+        task_id: The task ID to get status for
+        tx_hash: Optional transaction hash to directly check blockchain status
     """
     try:
+        logger.info(f"Fetching evaluation status for task: {task_id}")
+        
         # Get status from contribution service
         contribution_service = get_contribution_service()
-        return await contribution_service.get_contribution_status(task_id)
+        status = await contribution_service.get_contribution_status(task_id)
+        
+        # If tx_hash is provided, check transaction status directly
+        if tx_hash:
+            logger.info(f"Checking transaction status for hash: {tx_hash}")
+            try:
+                # Get transaction status from reward service
+                tx_status = contribution_service.reward_service.get_transaction_status(tx_hash)
+                
+                logger.info(f"Transaction status for {tx_hash}: {tx_status.get('status')}")
+                
+                # Add transaction status to response
+                if "reward" not in status:
+                    status["reward"] = {}
+                if "xp" not in status["reward"]:
+                    status["reward"]["xp"] = {}
+                
+                # Include transaction status in the response
+                status["transaction_status"] = tx_status
+                
+                # If transaction is confirmed successful, update reward status
+                if tx_status.get("status") == "success":
+                    logger.info(f"Transaction {tx_hash} confirmed successful")
+                    
+                    # Update reward phase status
+                    if "phases" in status and "reward" in status["phases"]:
+                        status["phases"]["reward"]["status"] = "completed"
+                        status["phases"]["reward"]["success"] = True
+                        if "details" not in status["phases"]["reward"]:
+                            status["phases"]["reward"]["details"] = {}
+                        status["phases"]["reward"]["details"]["transaction_status"] = tx_status.get("status")
+                        status["phases"]["reward"]["details"]["block_number"] = tx_status.get("block_number")
+                        status["phases"]["reward"]["details"]["transaction_hash"] = tx_hash
+                    
+                    # Also update reward object if it exists
+                    if "reward" in status and "xp" in status["reward"]:
+                        status["reward"]["xp"]["status"] = "completed"
+                        status["reward"]["xp"]["success"] = True
+                        status["reward"]["xp"]["transaction_hash"] = tx_hash
+                        status["reward"]["xp"]["block_number"] = tx_status.get("block_number")
+                        status["reward"]["xp"]["transaction_status"] = tx_status.get("status")
+                        
+                    # Update evaluation record in database with this status
+                    # This is important so future calls without tx_hash will show correct status
+                    evaluation = await contribution_service.evaluator.get_evaluation_status(task_id)
+                    if evaluation:
+                        if not evaluation.reward:
+                            evaluation.reward = {}
+                        if "xp" not in evaluation.reward:
+                            evaluation.reward["xp"] = {}
+                            
+                        evaluation.reward["xp"]["success"] = True
+                        evaluation.reward["xp"]["status"] = "completed"
+                        evaluation.reward["xp"]["transaction_hash"] = tx_hash
+                        evaluation.reward["xp"]["block_number"] = tx_status.get("block_number")
+                        
+                        await contribution_service.evaluator.update_evaluation_status(task_id, evaluation)
+                        logger.info(f"Updated evaluation record with successful transaction status for {task_id}")
+                
+                # If transaction failed, update status accordingly
+                elif tx_status.get("status") == "failed":
+                    logger.info(f"Transaction {tx_hash} failed")
+                    
+                    # Update reward phase status to show transaction failed
+                    if "phases" in status and "reward" in status["phases"]:
+                        status["phases"]["reward"]["status"] = "failed"
+                        status["phases"]["reward"]["success"] = False
+                        status["phases"]["reward"]["error"] = "Transaction failed on blockchain"
+                        if "details" not in status["phases"]["reward"]:
+                            status["phases"]["reward"]["details"] = {}
+                        status["phases"]["reward"]["details"]["transaction_status"] = tx_status.get("status")
+                        status["phases"]["reward"]["details"]["block_number"] = tx_status.get("block_number")
+                        status["phases"]["reward"]["details"]["transaction_hash"] = tx_hash
+                        status["phases"]["reward"]["details"]["error"] = tx_status.get("error")
+                
+                # For pending transactions, ensure status reflects this
+                elif tx_status.get("status") == "pending":
+                    if "phases" in status and "reward" in status["phases"]:
+                        status["phases"]["reward"]["status"] = "processing"
+                        if "details" not in status["phases"]["reward"]:
+                            status["phases"]["reward"]["details"] = {}
+                        status["phases"]["reward"]["details"]["transaction_status"] = "pending"
+                        status["phases"]["reward"]["details"]["transaction_hash"] = tx_hash
+            
+            except Exception as tx_error:
+                logger.error(f"Error checking transaction status: {str(tx_error)}")
+                # Add error info but don't fail the whole request
+                status["transaction_status_error"] = str(tx_error)
+        
+        logger.info(f"Status for task {task_id}: {status['status']}, completed: {status['completed']}")
+        return status
         
     except Exception as e:
+        error_stack = traceback.format_exc()
         logger.error(f"Error getting evaluation status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get evaluation status: {str(e)}"
-        )
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Failed to get evaluation status: {str(e)}"
+        }
 
 @router.get('/files')
 async def list_files() -> Dict[str, Any]:
     """List all files"""
     try:
+        logger.info("Listing files")
         akave_sdk = get_storage_sdk()
         async with akave_sdk as client:
             files = await client.list_files("asl-training-data")
-            return {"files": files}
+            return {"success": True, "files": files}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list files: {str(e)}"
-        )
+        error_stack = traceback.format_exc()
+        logger.error(f"Failed to list files: {str(e)}")
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Failed to list files: {str(e)}"
+        }
 
 @router.post('/upload')
 async def upload_file_direct(file: UploadFile = File(...)) -> Dict[str, Any]:
@@ -112,7 +310,7 @@ async def upload_file_direct(file: UploadFile = File(...)) -> Dict[str, Any]:
         contents = await file.read()
         file_size = len(contents)
 
-        logger.info(f"Processing file: {file.filename}, size: {file_size} bytes")
+        logger.info(f"Processing direct upload: {file.filename}, size: {file_size} bytes")
         
         akave_sdk = get_storage_sdk()
         async with akave_sdk as client:
@@ -123,6 +321,7 @@ async def upload_file_direct(file: UploadFile = File(...)) -> Dict[str, Any]:
             )
 
             return {
+                "success": True,
                 "message": "File uploaded successfully",
                 "filename": file.filename,
                 "size": file_size,
@@ -132,14 +331,560 @@ async def upload_file_direct(file: UploadFile = File(...)) -> Dict[str, Any]:
             }
 
     except AkaveError as e:
-        logger.error(f"Akave error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Storage error: {str(e)}"
-        )
+        error_stack = traceback.format_exc()
+        logger.error(f"Akave storage error: {str(e)}")
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Storage error: {str(e)}"
+        }
     except Exception as e:
+        error_stack = traceback.format_exc()
         logger.error(f"Upload error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Upload failed: {str(e)}"
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Upload failed: {str(e)}"
+        }
+
+@router.post('/diagnostic')
+async def upload_diagnostic(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """
+    Diagnostic endpoint to test file upload functionality.
+    This helps debug file-related issues without going through the entire pipeline.
+    """
+    try:
+        # Read file as bytes
+        contents = await file.read()
+        file_size = len(contents)
+        file_summary = contents[:100].hex() if contents else "empty"
+
+        logger.info(f"Diagnostic file upload: {file.filename}, size: {file_size} bytes")
+        
+        # Return diagnostic information
+        return {
+            "success": True,
+            "message": "Diagnostic file upload successful",
+            "filename": file.filename,
+            "size": file_size,
+            "content_type": file.content_type,
+            "content_summary": file_summary,
+            "headers": dict(file.headers) if hasattr(file, 'headers') else {},
+            "timestamp": time.time()
+        }
+
+    except Exception as e:
+        error_stack = traceback.format_exc()
+        logger.error(f"Diagnostic upload error: {str(e)}")
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Diagnostic upload failed: {str(e)}",
+            "error_type": type(e).__name__,
+            "error_details": str(e)
+        }
+
+@router.get("/evaluation/status/stream/{task_id}")
+async def get_evaluation_status_stream(
+    task_id: str,
+    tx_hash: Optional[str] = None
+) -> StreamingResponse:
+    """
+    Get the status of an evaluation task using Server-Sent Events
+    
+    Arguments:
+        task_id: The task ID to get status for
+        tx_hash: Optional transaction hash to directly check blockchain status
+    """
+    async def generate_status_stream():
+        contribution_service = get_contribution_service()
+        while True:
+            try:
+                # Use the same endpoint as the regular status check
+                status = await get_evaluation_status(task_id, tx_hash)
+                yield f"data: {json.dumps(status)}\n\n"
+            except Exception as e:
+                logger.error(f"Error in status stream: {str(e)}")
+                # Return error as event data
+                yield f"data: {json.dumps({'error': str(e), 'task_id': task_id})}\n\n"
+                
+            await asyncio.sleep(2)  # Slightly longer interval for streaming to reduce load
+
+    return StreamingResponse(generate_status_stream(), media_type="text/event-stream")
+
+@router.post("/evaluate")
+async def evaluate_contribution(
+    file: UploadFile = File(...),
+    user_address: str = Form(...),
+    landmarks: Optional[str] = Form(None)
+) -> Dict[str, Any]:
+    """
+    Phase 1: Evaluate a contribution to check quality and hand detection
+    
+    Arguments:
+        file: The image file to evaluate
+        user_address: User's wallet address
+        landmarks: Optional pre-detected hand landmarks from client
+        
+    Returns:
+        Evaluation result with task_id for further operations
+    """
+    # First check if the file is valid
+    if not file or not file.filename:
+        logger.error("Missing file or filename in evaluation request")
+        return {
+            "success": False,
+            "error": "No file provided or filename is missing"
+        }
+    
+    # Validate wallet address
+    if not user_address:
+        logger.error("User address missing in contribution evaluation")
+        return {
+            "success": False,
+            "error": "User address is required"
+        }
+    
+    # Process landmarks if provided from client-side detection
+    client_landmarks = None
+    if landmarks:
+        try:
+            client_landmarks = json.loads(landmarks)
+            logger.info(f"Received client-side landmarks with {len(client_landmarks) // 3} points")
+        except Exception as e:
+            logger.warning(f"Failed to parse client landmarks: {e}")
+    
+    try:
+        # Read file content
+        try:
+            file_content = await file.read()
+            file_size = len(file_content)
+            logger.info(f"Read {file_size} bytes from file {file.filename}")
+        except Exception as read_error:
+            logger.error(f"Failed to read file content: {read_error}")
+            return {
+                "success": False,
+                "error": f"Failed to read file content: {str(read_error)}"
+            }
+        
+        # Get contribution service
+        contribution_service = get_contribution_service()
+        
+        # Submit contribution to get task ID
+        try:
+            task_metadata = await contribution_service.submit_contribution(
+                file_content=file_content,
+                file_name=file.filename,
+                file_type=file.content_type,
+                user_address=user_address,
+                client_landmarks=client_landmarks
+            )
+            
+            # Extract task ID for tracking
+            task_id = task_metadata.get("task_id")
+            if not task_id:
+                logger.error("No task ID returned from contribution submission")
+                return {
+                    "success": False,
+                    "error": "Failed to create evaluation task"
+                }
+                
+            logger.info(f"Created evaluation task ID: {task_id}")
+            
+            # Process only the evaluation phase
+            evaluation_result = await contribution_service.process_evaluation_phase(
+                task_id=task_id,
+                file_content=file_content,
+                task_metadata=task_metadata,
+                client_landmarks=client_landmarks
+            )
+            
+            # Get status for response
+            evaluation_status = await contribution_service.get_contribution_status(task_id)
+            
+            # Return result with task_id and file_content hash for verification
+            content_hash = hashlib.md5(file_content).hexdigest()
+            
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Contribution evaluated successfully",
+                "status": evaluation_status["status"],
+                "content_hash": content_hash,
+                "file_info": {
+                    "filename": file.filename,
+                    "size": file_size,
+                    "type": file.content_type
+                },
+                "evaluation": evaluation_status["phases"]["evaluation"]
+            }
+            
+        except Exception as submit_error:
+            logger.error(f"Failed to evaluate contribution: {submit_error}")
+            return {
+                "success": False,
+                "error": f"Evaluation failed: {str(submit_error)}"
+            }
+            
+    except Exception as e:
+        error_stack = traceback.format_exc()
+        logger.error(f"Contribution evaluation error: {str(e)}")
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Evaluation failed: {str(e)}",
+            "details": {
+                "error_type": type(e).__name__,
+                "file_name": file.filename if file else "unknown",
+                "file_type": file.content_type if file else "unknown",
+                "user_address": user_address
+            }
+        }
+
+@router.post("/upload/{task_id}")
+async def upload_contribution(
+    task_id: str,
+    file: UploadFile = File(...),
+    content_hash: str = Form(...),
+    user_address: str = Form(...)
+) -> Dict[str, Any]:
+    """
+    Phase 2: Upload a contribution to permanent storage after it's been evaluated
+    
+    Arguments:
+        task_id: The task ID from the evaluation phase
+        file: The image file to upload
+        content_hash: MD5 hash of the file content to verify it's the same file that was evaluated
+        user_address: User's wallet address
+        
+    Returns:
+        Upload result with storage details
+    """
+    try:
+        # Read file content
+        file_content = await file.read()
+        
+        # Verify content hash
+        actual_hash = hashlib.md5(file_content).hexdigest()
+        if actual_hash != content_hash:
+            logger.error(f"Content hash mismatch: expected {content_hash}, got {actual_hash}")
+            return {
+                "success": False,
+                "error": "File content has changed since evaluation",
+                "details": {
+                    "expected_hash": content_hash,
+                    "actual_hash": actual_hash
+                }
+            }
+        
+        # Get contribution service
+        contribution_service = get_contribution_service()
+        
+        # Get existing task metadata
+        status = await contribution_service.get_contribution_status(task_id)
+        if not status or status.get("status") == "pending":
+            logger.error(f"No evaluation found for task ID: {task_id}")
+            return {
+                "success": False,
+                "error": "This file has not been evaluated yet. Please evaluate first."
+            }
+        
+        # Only proceed if evaluation was approved
+        if status.get("status") != "approved":
+            logger.error(f"Evaluation was not approved for task ID: {task_id}")
+            return {
+                "success": False,
+                "error": "Evaluation was not approved. Cannot upload file.",
+                "evaluation_status": status.get("status")
+            }
+        
+        # Create task metadata from existing data
+        task_metadata = {
+            "task_id": task_id,
+            "file_id": status.get("phases", {}).get("evaluation", {}).get("details", {}).get("file_id"),
+            "filename": file.filename,
+            "file_size": len(file_content),
+            "content_type": file.content_type,
+            "user_address": user_address
+        }
+        
+        # Process upload phase
+        upload_result = await contribution_service.process_upload_phase(
+            task_id=task_id,
+            file_content=file_content,
+            task_metadata=task_metadata
         )
+        
+        # Check if this is a duplicate file
+        if not upload_result.get("success") and upload_result.get("duplicate"):
+            logger.info(f"Duplicate file detected during upload for task ID: {task_id}")
+            # Update task status to indicate rejection due to duplicate
+            await contribution_service.update_task_status(
+                task_id=task_id,
+                status="rejected",
+                message="Duplicate file detected. Please try a different image.",
+                phase="upload",
+                phase_status="failed",
+                phase_success=False,
+                phase_details={"duplicate": True},
+                phase_error="This file has already been uploaded."
+            )
+            
+            return {
+                "success": False,
+                "error": "This file has already been uploaded. Please try a different image.",
+                "duplicate": True,
+                "message": "Duplicate file detected. Please try a different image.",
+                "status": "rejected"
+            }
+        
+        # Check if storage details indicate a duplicate (some storage providers may return success but mark as duplicate)
+        if upload_result.get("success") and upload_result.get("duplicate"):
+            logger.info(f"Storage reported successful upload but marked as duplicate for task ID: {task_id}")
+            # Update task status to indicate rejection due to duplicate
+            await contribution_service.update_task_status(
+                task_id=task_id,
+                status="rejected",
+                message="Duplicate file detected. Please try a different image.",
+                phase="upload",
+                phase_status="failed",
+                phase_success=False,
+                phase_details={"duplicate": True, "cid": upload_result.get("cid"), "bucket": upload_result.get("bucket")},
+                phase_error="This file has already been uploaded."
+            )
+            
+            return {
+                "success": False,
+                "error": "This file has already been uploaded. Please try a different image.",
+                "duplicate": True,
+                "message": "Duplicate file detected. Please try a different image.",
+                "status": "rejected"
+            }
+        
+        # If upload failed for other reasons
+        if not upload_result.get("success"):
+            logger.error(f"Upload failed for task ID: {task_id}: {upload_result.get('error')}")
+            return {
+                "success": False,
+                "error": f"Upload failed: {upload_result.get('error')}"
+            }
+        
+        # Get updated status
+        status = await contribution_service.get_contribution_status(task_id)
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "message": "Contribution uploaded successfully",
+            "status": status["status"],
+            "upload": status["phases"]["upload"],
+            "storage": {
+                "cid": upload_result.get("cid"),
+                "bucket": upload_result.get("bucket"),
+                "duplicate": False  # Explicitly set to false since we've handled duplicates above
+            }
+        }
+        
+    except Exception as e:
+        error_stack = traceback.format_exc()
+        logger.error(f"Contribution upload error: {str(e)}")
+        logger.error(error_stack)
+        
+        # Check if it's a duplicate file error
+        if "FileFullyUploaded" in str(e) or "duplicate" in str(e).lower():
+            logger.info(f"Duplicate file detected for task ID: {task_id}")
+            # Update task status to indicate rejection due to duplicate
+            try:
+                contribution_service = get_contribution_service()
+                await contribution_service.update_task_status(
+                    task_id=task_id,
+                    status="rejected",
+                    message="Duplicate file detected. Please try a different image.",
+                    phase="upload",
+                    phase_status="failed",
+                    phase_success=False,
+                    phase_details={"duplicate": True},
+                    phase_error="This file has already been uploaded."
+                )
+            except Exception as update_error:
+                logger.error(f"Failed to update task status: {update_error}")
+            
+            return {
+                "success": False,
+                "error": "This file has already been uploaded. Please try a different image.",
+                "duplicate": True,
+                "message": "Duplicate file detected. Please try a different image.",
+                "status": "rejected"
+            }
+        
+        return {
+            "success": False,
+            "error": f"Upload failed: {str(e)}",
+            "details": {
+                "error_type": type(e).__name__,
+                "task_id": task_id,
+                "file_name": file.filename
+            }
+        }
+
+@router.post("/reward/{task_id}")
+async def process_reward(
+    task_id: str,
+    payload: RewardRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks()
+) -> Dict[str, Any]:
+    """
+    Phase 3: Process rewards for a contribution after it's been evaluated and uploaded
+    
+    Arguments:
+        task_id: The task ID from previous phases
+        payload: JSON body with address fields (primary source) {
+            "user_address": str
+        }
+        
+    Returns:
+        Reward result with blockchain transaction details
+    """
+    try:
+        # Get contribution service
+        user_address = payload.user_address
+        contribution_service = get_contribution_service()
+        
+        logger.info(f"Processing reward request for task {task_id}")
+        logger.info(f"Using address {user_address} for rewards processing")
+        
+        # Get existing task status
+        status = await contribution_service.get_contribution_status(task_id)
+        if not status or status.get("status") == "pending":
+            logger.error(f"No evaluation found for task ID: {task_id}")
+            return {
+                "success": False,
+                "error": "This file has not been processed yet. Please evaluate and upload first."
+            }
+        
+        # Check for duplicate files and reject reward processing immediately
+        is_duplicate = status.get("phases", {}).get("upload", {}).get("details", {}).get("duplicate", False)
+        if is_duplicate or status.get("status") == "rejected":
+            logger.info(f"Rejecting reward for duplicate file, task ID: {task_id}")
+            return {
+                "success": False,
+                "error": "Duplicate files are not eligible for rewards",
+                "message": "This file appears to be a duplicate. No rewards will be processed.",
+                "status": "rejected",
+                "duplicate": True,
+                "phases": {
+                    "evaluation": status["phases"]["evaluation"],
+                    "upload": status["phases"]["upload"],
+                    "reward": {
+                        "status": "failed",
+                        "success": False,
+                        "error": "Duplicate files are not eligible for rewards",
+                        "details": {"duplicate": True}
+                    }
+                }
+            }
+        
+        # Verify the upload phase was completed
+        upload_phase = status.get("phases", {}).get("upload", {})
+        if upload_phase.get("status") != "completed" or not upload_phase.get("success"):
+            logger.error(f"Upload phase not completed for task ID: {task_id}")
+            return {
+                "success": False,
+                "error": "Upload phase not completed. Cannot process rewards.",
+                "upload_status": upload_phase.get("status")
+            }
+        
+        # Create task metadata from existing data
+        task_metadata = {
+            "task_id": task_id,
+            "file_id": status.get("phases", {}).get("evaluation", {}).get("details", {}).get("file_id"),
+            "user_address": user_address
+        }
+        
+        logger.info(f"Starting reward processing for task {task_id} with address {user_address}")
+        
+        # Use the new method to just get the transaction hash quickly
+        tx_result = await contribution_service.prepare_reward_transaction(
+            task_id=task_id,
+            user_address=user_address,
+            task_metadata=task_metadata
+        )
+        
+        # Get the transaction hash if available
+        tx_hash = tx_result.get("tx_hash") or tx_result.get("transaction_hash")
+        is_rate_limited = tx_result.get("is_rate_limited", False)
+        
+        # Return a response with the transaction hash
+        if tx_hash:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Reward transaction submitted",
+                "status": status["status"],
+                "transaction_hash": tx_hash,
+                "phases": {
+                    "evaluation": status["phases"]["evaluation"],
+                    "upload": status["phases"]["upload"],
+                    "reward": {
+                        "status": "processing",
+                        "success": False,
+                        "message": "Reward transaction submitted",
+                        "details": {
+                            "transaction_hash": tx_hash
+                        }
+                    }
+                }
+            }
+        elif is_rate_limited:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Reward processing delayed due to blockchain rate limits",
+                "status": status["status"],
+                "is_rate_limited": True,
+                "phases": {
+                    "evaluation": status["phases"]["evaluation"],
+                    "upload": status["phases"]["upload"],
+                    "reward": {
+                        "status": "processing",
+                        "success": False,
+                        "message": "Blockchain rate limited. Will retry automatically.",
+                        "is_rate_limited": True,
+                        "details": {
+                            "is_rate_limited": True
+                        }
+                    }
+                }
+            }
+        else:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Reward processing started in background",
+                "status": status["status"],
+                "phases": {
+                    "evaluation": status["phases"]["evaluation"],
+                    "upload": status["phases"]["upload"],
+                    "reward": {
+                        "status": "processing",
+                        "success": False,
+                        "message": "Reward processing started in background"
+                    }
+                }
+            }
+    except Exception as e:
+        error_stack = traceback.format_exc()
+        logger.error(f"Reward processing error: {str(e)}")
+        logger.error(error_stack)
+        
+        return {
+            "success": False,
+            "error": f"Reward processing failed: {str(e)}",
+            "details": {
+                "error_type": type(e).__name__,
+            }
+        }
