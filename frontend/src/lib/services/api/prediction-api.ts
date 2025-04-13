@@ -19,7 +19,7 @@ export const predictionApi = {
    * @returns Prediction response with letter and confidence
    */
   async predictSign(landmarks: number[]): Promise<PredictionResponse> {
-    const response = await apiClient.post("/api/prediction/detect", {
+    const response = await apiClient.post("/api/prediction/predict", {
       landmarks,
     });
     return response.data;

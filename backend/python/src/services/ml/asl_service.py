@@ -5,6 +5,9 @@ from sl_detection import ASLPreprocessor, HandDetector, CoordsModel, ASLPipeline
 from sl_detection import ContributionManager, create_asl_letter_mapping, get_letter_from_prediction
 from ...core.config import settings
 import argparse
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ASLService:
     def __init__(self, model_path=settings.MODEL_PATH):
@@ -62,6 +65,7 @@ class ASLService:
             # Convert landmarks to numpy array
             try:
                 landmarks_array = np.array(landmarks)
+                
                 # Check if we have the right shape
                 if landmarks_array.size == 1:
                     return {
@@ -91,9 +95,9 @@ class ASLService:
 
             # Preprocess landmarks
             if self.preprocessor.normalize:
-                normalized_landmarks = self.preprocessor.normalize_landmarks(landmarks)
+                normalized_landmarks = self.preprocessor.normalize_landmarks(landmarks_array)
             else:
-                normalized_landmarks = landmarks
+                normalized_landmarks = landmarks_array
             
             if self.preprocessor.flatten:
                 features = self.preprocessor.flatten_landmarks(normalized_landmarks)
@@ -110,15 +114,19 @@ class ASLService:
             confidence = float(prediction["confidence"])
             score = min(1.0, confidence / 0.7)  # Normalize to 0-1 scale
             
+            # Ensure landmarks are returned as a flat list of floats, not a nested list
+            # This is what the PredictionResponse model expects
+            flat_landmarks = landmarks_array.flatten().tolist()
+            
             return {
                 "success": True,
                 "letter": letter,
                 "confidence": confidence,
                 "score": score,
-                "landmarks": landmarks_array.tolist()
+                "landmarks": flat_landmarks
             }
         except Exception as e:
-            print(f"Error processing landmarks: {e}")
+            logger.error(f"Error processing landmarks: {e}")
             return {
                 "success": False,
                 "message": f"Error processing landmarks: {str(e)}"

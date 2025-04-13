@@ -1,7 +1,11 @@
 import express from "express";
 import cors from "cors";
 import { config } from "@/config";
-import { uploadLimiter, inferenceLimiter, apiLimiter } from "@/middleware/rateLimiter";
+import {
+  uploadLimiter,
+  inferenceLimiter,
+  apiLimiter,
+} from "@/middleware/rateLimiter";
 import { validateRequest } from "@/middleware/validation";
 import { authMiddleware } from "@/middleware/auth";
 import {
@@ -16,7 +20,7 @@ import rewardsRoutes from "@/routes/rewards";
 const app = express();
 
 // Apply global rate limiter to all routes
-app.use(apiLimiter);
+// app.use(apiLimiter);
 
 app.use(
   cors({
@@ -39,9 +43,9 @@ app.use(
   storageRoutes
 );
 
-app.use("/api/prediction", inferenceLimiter, predictionRoutes);
-app.use("/api/evaluation", evaluationRoutes);
-app.use("/api/rewards", rewardsRoutes);
+app.use("/api/prediction", predictionRoutes);
+app.use("/api/evaluation", apiLimiter, evaluationRoutes);
+app.use("/api/rewards", apiLimiter, rewardsRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
