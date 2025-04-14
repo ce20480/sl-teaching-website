@@ -5,12 +5,23 @@ import { logRequest } from "../middleware/logger";
 import { handleErrors } from "../middleware/errorHandler";
 import { authenticateJWT } from "../middleware/auth";
 import { validateRequestSchema } from "../middleware/validation";
+import rateLimit from "express-rate-limit";
 
-// Prediction API router 
+// Prediction API router
 const router = express.Router();
 
 // Configuration for Python backend
 const PYTHON_SERVICE_URL = config.pythonApiUrl;
+
+// increase rate limit to 1000 requests per second
+// const ratePredictionLimiter = rateLimit({
+//   windowMs: 1000,
+//   limit: 10000,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: "Too many prediction requests, please try again later",
+//   skip: () => process.env.NODE_ENV === "development",
+// });
 
 // Helper function to proxy prediction requests to Python backend
 const proxyPredictionRequest = async (
@@ -47,7 +58,8 @@ const proxyPredictionRequest = async (
       `Error proxying to Python prediction endpoint: ${error.message}`
     );
     return res.status(error.response?.status || 500).json({
-      error: error.response?.data?.detail || "Failed to process prediction request",
+      error:
+        error.response?.data?.detail || "Failed to process prediction request",
     });
   }
 };
@@ -56,46 +68,43 @@ const proxyPredictionRequest = async (
  * Route that receives landmarks from frontend and forwards to Python backend
  * POST /api/predict
  */
-router.post(
-  "/predict",
-  logRequest,
-  async (req: Request, res: Response) => {
-    try {
-      const { landmarks } = req.body;
+router.post("/predict", logRequest, async (req: Request, res: Response) => {
+  try {
+    const { landmarks } = req.body;
 
-      if (!landmarks || !Array.isArray(landmarks)) {
-        return res.status(400).json({
-          error: "Invalid landmarks data. Expected an array of coordinates.",
-        });
-      }
-
-      console.log(
-        "Received landmarks for prediction, forwarding to Python backend"
-      );
-
-      // Forward to Python backend
-      const response = await axios.post(
-        `${PYTHON_SERVICE_URL}/prediction/predict`,
-        { landmarks },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            ...(req.headers.authorization && {
-              Authorization: req.headers.authorization,
-            }),
-          },
-        }
-      );
-
-      return res.json(response.data);
-    } catch (error: any) {
-      console.error("Prediction error:", error.response?.data || error);
-      return res.status(error.response?.status || 500).json({
-        error: error.response?.data?.detail || "Failed to process prediction",
+    if (!landmarks || !Array.isArray(landmarks)) {
+      return res.status(400).json({
+        error: "Invalid landmarks data. Expected an array of coordinates.",
       });
     }
+
+    console.log(
+      "Received landmarks for prediction, forwarding to Python backend: ",
+      landmarks
+    );
+
+    // Forward to Python backend
+    const response = await axios.post(
+      `${PYTHON_SERVICE_URL}/prediction/predict`,
+      { landmarks },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          ...(req.headers.authorization && {
+            Authorization: req.headers.authorization,
+          }),
+        },
+      }
+    );
+
+    return res.json(response.data);
+  } catch (error: any) {
+    console.error("Prediction error:", error.response?.data || error);
+    return res.status(error.response?.status || 500).json({
+      error: error.response?.data?.detail || "Failed to process prediction",
+    });
   }
-);
+});
 
 /**
  * Route that receives labeled landmarks from frontend for training
@@ -112,7 +121,8 @@ router.post(
 
       if (!landmarks || !Array.isArray(landmarks) || !label) {
         return res.status(400).json({
-          error: "Invalid contribution data. Expected landmarks array and label.",
+          error:
+            "Invalid contribution data. Expected landmarks array and label.",
         });
       }
 

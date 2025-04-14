@@ -3,6 +3,7 @@ from fastapi import Depends, APIRouter, Query, BackgroundTasks
 import asyncio
 import time
 import logging
+from web3 import Web3
 
 from ...services.reward.xp_reward import XpRewardService, get_xp_reward_service, ActivityType
 from ...services.reward.achievement_reward import AchievementRewardService, get_achievement_reward_service, AchievementType
@@ -637,4 +638,42 @@ async def award_achievement(
             "message": f"Failed to award achievement: {str(e)}",
             "address": address,
             "total_xp": total_xp
+        }
+
+
+@router.get("/blockchain/status")
+async def blockchain_status(
+    xp_service: XpRewardService = Depends(get_xp_reward_service)
+):
+    """Check the status of the blockchain connection"""
+    try:
+        # Check blockchain connection
+        is_connected = xp_service.w3.is_connected()
+        
+        # Get information about the current connection
+        current_endpoint = xp_service.rate_limiter.get_current_endpoint() or "Primary endpoint"
+        chain_id = xp_service.w3.eth.chain_id
+        block_number = xp_service.w3.eth.block_number
+        gas_price = Web3.from_wei(xp_service.w3.eth.gas_price, 'gwei')
+        
+        # Get account balance
+        balance = xp_service.w3.eth.get_balance(xp_service.account.address)
+        balance_eth = Web3.from_wei(balance, 'ether')
+        
+        return {
+            "success": True,
+            "connected": is_connected,
+            "endpoint": current_endpoint,
+            "chain_id": chain_id,
+            "block_number": block_number,
+            "gas_price_gwei": float(gas_price),
+            "account": xp_service.account.address,
+            "balance": float(balance_eth)
+        }
+    except Exception as e:
+        logger.error(f"Error checking blockchain status: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "connected": False
         }

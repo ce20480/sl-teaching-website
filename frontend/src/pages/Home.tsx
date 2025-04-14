@@ -12,7 +12,7 @@ const features = [
     title: "Contribute",
     description: "Help improve our system by contributing sign language data",
     icon: Upload,
-    to: "/contribute",
+    to: "/contribute-v2",
   },
   {
     title: "Earn Rewards",
@@ -37,7 +37,8 @@ const Home = () => {
         </h1>
         <p className="text-lg text-muted-foreground">
           Learn and practice sign language through interactive lessons and
-          real-time translation
+          real-time translation. Also, help improve our system by contributing
+          sign language images!
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

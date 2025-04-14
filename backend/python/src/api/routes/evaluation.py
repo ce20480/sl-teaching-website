@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
-from ...services.evaluator import ContributionEvaluator
+from ...services.service_container import get_evaluator_service
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
-evaluator = ContributionEvaluator()
+evaluator = get_evaluator_service()
 
 @router.get("/status/{task_id}")
 async def get_evaluation_status(task_id: str) -> Dict[str, Any]:

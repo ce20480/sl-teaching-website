@@ -212,6 +212,47 @@ router.get(
   handleErrors(proxyRewardsRequest)
 );
 
+// Check blockchain connection status
+router.get(
+  "/blockchain/status",
+  logRequest,
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    try {
+      console.log("[Express] Checking blockchain connection status");
+
+      // Forward to Python backend
+      const response = await axios.get(
+        `${PYTHON_SERVICE_URL}/rewards/blockchain/status`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...(req.headers.authorization && {
+              Authorization: req.headers.authorization,
+            }),
+          },
+        }
+      );
+
+      return res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(
+        `[Express] Error checking blockchain status: ${error.message}`
+      );
+      console.error(error.response?.data || error);
+
+      return res.status(error.response?.status || 500).json({
+        success: false,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to check blockchain status",
+      });
+    }
+  }
+);
+
 // Proxy any other routes to Python backend
 router.all(
   "/*",

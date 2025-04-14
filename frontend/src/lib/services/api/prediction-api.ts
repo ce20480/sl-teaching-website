@@ -29,12 +29,7 @@ export const predictionApi = {
    * Get the model's accuracy and statistics
    * @returns Model stats including accuracy, sample count, etc.
    */
-  async getModelStats(): Promise<{
-    accuracy: number;
-    total_samples: number;
-    last_trained: string;
-    supported_signs: string[];
-  }> {
+  async getModelStats(): Promise<any> {
     const response = await apiClient.get("/api/prediction/stats");
     return response.data;
   },

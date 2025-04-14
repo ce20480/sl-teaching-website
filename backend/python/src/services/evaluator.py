@@ -1,14 +1,16 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from enum import Enum
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime
-import json
 import os
-import random
 import time
-import uuid
+import logging
 from pydantic import BaseModel
+
+from .ml.blur_service import BlurService
+from .ml.asl_service import ASLService
+from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 class EvaluationStatus(str, Enum):
     PENDING = "pending"
@@ -27,17 +29,35 @@ class EvaluationResult(BaseModel):
     metadata: Dict[str, Any] = {}
     reward: Optional[Dict[str, Any]] = None
 
-class ContributionEvaluator:
+class EvaluatorService:
     """
-    Service to evaluate user contributions.
-    This is a placeholder that will be replaced with actual AI models.
+    Service to evaluate user contributions using multiple evaluation criteria:
+    1. Blur detection - Reject blurry images
+    2. ASL landmark detection - Validate hand landmarks are present and detectable
+    
+    This service handles only the evaluation phase of the contribution workflow.
+    Upload and reward phases are handled separately.
     """
     
-    def __init__(self):
-        # Placeholder for future AI model initialization
+    def __init__(self, asl_model_path=settings.MODEL_PATH, blur_threshold=100):
+        # Initialize evaluation services
+        self.blur_service = BlurService()
+        
+        # ASL service may be optional if model path not available
+        self.asl_service = None
+        if asl_model_path and os.path.exists(asl_model_path):
+            logger.info(f"Initializing ASL service with model: {asl_model_path}")
+            self.asl_service = ASLService(asl_model_path)
+        else:
+            logger.warning(f"ASL model not found at {asl_model_path}. ASL evaluation will be skipped.")
+        
+        # Setup processing queue
         self.processing_queue = asyncio.Queue()
         self._is_processing = False
         self.evaluations = {}
+        
+        # Evaluation thresholds
+        self.blur_threshold = blur_threshold  # Minimum acceptable focus measure
     
     async def start_processing(self):
         """Start the background processing loop"""
@@ -48,7 +68,7 @@ class ContributionEvaluator:
                 await self._process_evaluation(evaluation_task)
                 self.processing_queue.task_done()
             except Exception as e:
-                print(f"Error processing evaluation: {e}")
+                logger.error(f"Error processing evaluation: {e}")
     
     async def stop_processing(self):
         """Stop the background processing loop"""
@@ -60,6 +80,7 @@ class ContributionEvaluator:
         file_id: str,
         file_type: str,
         user_address: str,
+        file_content: bytes,
         metadata: Dict[str, Any]
     ) -> str:
         """
@@ -70,11 +91,15 @@ class ContributionEvaluator:
             file_id: ID of the uploaded file
             file_type: MIME type of the file
             user_address: Wallet address of the contributor
+            file_content: Binary content of the file
             metadata: Additional file metadata
             
         Returns:
             Task ID for tracking
         """
+        # Record submission time
+        submission_time = time.time()
+        
         self.evaluations[task_id] = EvaluationResult(
             task_id=task_id,
             status=EvaluationStatus.PENDING,
@@ -84,191 +109,224 @@ class ContributionEvaluator:
                 "file_id": file_id,
                 "file_type": file_type,
                 "user_address": user_address,
-                "submission_time": time.time(),
+                "submission_time": submission_time,
                 **metadata
             }
         )
         
+        # Add to queue for processing
+        await self.processing_queue.put({
+            "task_id": task_id,
+            "file_content": file_content
+        })
+        
         return task_id
     
-    async def _process_evaluation(self, task: Dict[str, Any] | str=None) -> EvaluationResult:
+    async def _process_evaluation(self, task: Dict[str, Any]) -> EvaluationResult:
         """
-        Process a single evaluation task.
-        This is a placeholder implementation that will be replaced with actual AI evaluation.
-        """
-        # Simulate processing time
-        await asyncio.sleep(2)
-        
-        # TODO: Replace with actual AI model evaluation
-        # Placeholder checks:
-        # 1. File type validation
-        # 2. Basic quality checks
-        # 3. Content verification
-        if isinstance(task, str):
-            task = {
-                "task_id": task
-            }
-        result = EvaluationResult(
-            task_id=task["task_id"],
-            status=EvaluationStatus.APPROVED,  # Always approve for now
-            message="Contribution approved",
-            score=0.95,  # Placeholder score
-            completed=True,
-            metadata={
-                "quality_score": 0.95,
-                "content_score": 0.98,
-                "verification_score": 0.92,
-                # Add more metrics as needed
-            },
-            reward={
-                "xp": {
-                    "success": True,
-                    "amount": 100,
-                    "transaction_hash": f"0x{uuid.uuid4().hex}"
-                },
-                "achievement": {
-                    "success": True,
-                    "token_id": random.randint(1000, 9999),
-                    "transaction_hash": f"0x{uuid.uuid4().hex}"
-                }
-            }
-        )
-        
-        # Here we'll add hooks for future AI model integration:
-        # await self._run_quality_check(task)
-        # await self._run_content_verification(task)
-        # await self._run_authenticity_check(task)
-        
-        return result
-    
-    async def get_evaluation_status(self, task_id: str) -> EvaluationResult:
-        """
-        Get the current status of an evaluation
+        Process a single evaluation task using multiple criteria
         
         Args:
-            task_id: Task ID to check
-            
+            task: Dictionary containing evaluation task parameters:
+                - task_id: Unique ID for the evaluation task
+                - file_content: Binary content of the file to evaluate
+                - landmarks: Optional pre-detected hand landmarks
+                - blur_only: If True, only blur detection is performed and landmark detection is skipped
+                
         Returns:
-            Evaluation result with current status
+            EvaluationResult with status and details
         """
+        task_id = task["task_id"]
+        file_content = task.get("file_content", None)
+        landmarks = task.get("landmarks", None)
+        blur_only = task.get("blur_only", False)  # Extract blur_only parameter
+        
+        # Create result object if it doesn't exist
         if task_id not in self.evaluations:
-            # Create a placeholder pending evaluation
-            return EvaluationResult(
+            self.evaluations[task_id] = EvaluationResult(
                 task_id=task_id,
-                status=EvaluationStatus.PENDING,
-                message="Task is queued for processing",
+                status=EvaluationStatus.PROCESSING,
+                message="Processing contribution",
                 completed=False,
                 metadata={}
             )
+        
+        # Update status to processing
+        self.evaluations[task_id].status = EvaluationStatus.PROCESSING
+        self.evaluations[task_id].message = "Evaluating contribution quality"
+        
+        # Record evaluation start time
+        evaluation_start_time = time.time()
+        self.evaluations[task_id].metadata["evaluation_start_time"] = evaluation_start_time
+        
+        try:
+            # 1. Check if image is blurry
+            blur_result = await self._evaluate_blur(file_content)
+            if not blur_result["success"]:
+                self.evaluations[task_id].status = EvaluationStatus.REJECTED
+                self.evaluations[task_id].message = f"Image rejected: {blur_result['message']}"
+                self.evaluations[task_id].completed = True
+                self.evaluations[task_id].metadata["evaluation_time"] = time.time()
+                return self.evaluations[task_id]
+            
+            # Store blur score regardless of blur_only flag
+            blur_score = blur_result.get("score", 0.5)
+            self.evaluations[task_id].metadata["blur_score"] = blur_score
+            self.evaluations[task_id].metadata["blur_details"] = blur_result
+            
+            # If blur_only is True, skip landmark detection and approve based on blur check only
+            if blur_only:
+                self.evaluations[task_id].status = EvaluationStatus.APPROVED
+                self.evaluations[task_id].message = "Image passed blur detection"
+                self.evaluations[task_id].score = blur_score
+                self.evaluations[task_id].completed = True
+                self.evaluations[task_id].metadata["evaluation_time"] = time.time()
+                self.evaluations[task_id].metadata["blur_only"] = True
+                return self.evaluations[task_id]
+                
+            # 2. Check if hand landmarks are detectable
+            landmark_result = await self._evaluate_landmarks(landmarks)
+            if not landmark_result["success"]:
+                self.evaluations[task_id].status = EvaluationStatus.REJECTED
+                self.evaluations[task_id].message = f"Image rejected: {landmark_result['message']}"
+                self.evaluations[task_id].completed = True
+                self.evaluations[task_id].metadata["evaluation_time"] = time.time()
+                return self.evaluations[task_id]
+            
+            # Calculate overall score based on evaluation results
+            landmark_score = landmark_result.get("score", 0.5)
+            
+            # Combined quality score (equal weighting)
+            quality_score = (blur_score + landmark_score) / 2
+            if quality_score < 0.5:
+                self.evaluations[task_id].status = EvaluationStatus.REJECTED
+                self.evaluations[task_id].message = "Contribution rejected: Quality score too low"
+            else:
+                # Set approval status and evaluation result
+                self.evaluations[task_id].status = EvaluationStatus.APPROVED
+                self.evaluations[task_id].message = "Contribution meets quality standards"
+
+            self.evaluations[task_id].score = quality_score
+            self.evaluations[task_id].completed = True
+
+            # Record evaluation results and completion time
+            evaluation_end_time = time.time()
+            self.evaluations[task_id].metadata.update({
+                "blur_score": blur_score,
+                "landmark_score": landmark_score,
+                "blur_details": blur_result,
+                "landmark_details": landmark_result,
+                "evaluation_time": evaluation_end_time,
+                "evaluation_duration": evaluation_end_time - evaluation_start_time
+            })
+            
+        except Exception as e:
+            logger.error(f"Error during evaluation: {e}")
+            self.evaluations[task_id].status = EvaluationStatus.FAILED
+            self.evaluations[task_id].message = f"Evaluation failed: {str(e)}"
+            self.evaluations[task_id].completed = True
+            self.evaluations[task_id].metadata["evaluation_time"] = time.time()
+            self.evaluations[task_id].metadata["error"] = str(e)
             
         return self.evaluations[task_id]
     
-    # Placeholder methods for future AI model integration
-    async def _run_quality_check(self, task: Dict[str, Any]) -> float:
-        """Run quality assessment on the contribution"""
-        # TODO: Implement quality check using AI models
-        return 0.95
-    
-    async def _run_content_verification(self, task: Dict[str, Any]) -> float:
-        """Verify the content matches expected sign language patterns"""
-        # TODO: Implement content verification using AI models
-        return 0.98
-    
-    async def _run_authenticity_check(self, task: Dict[str, Any]) -> float:
-        """Check for authenticity and potential misuse"""
-        # TODO: Implement authenticity check using AI models
-        return 0.92
-    
-    async def process_evaluation_and_reward(
-        self,
-        task_id: str,
-        user_address: str,
-        upload_result: Dict[str, Any]
-    ):
-        """
-        Process evaluation in background and award rewards if quality standards met
-        
-        Args:
-            task_id: Task ID to process
-            user_address: User's wallet address
-            upload_result: Result of the file upload
-        """
+    async def _evaluate_blur(self, file_content: bytes) -> Dict[str, Any]:
+        """Evaluate image for blurriness"""
         try:
-            # Update status to processing
-            if task_id not in self.evaluations:
-                # Create a new evaluation if it doesn't exist
-                self.evaluations[task_id] = EvaluationResult(
-                    task_id=task_id,
-                    status=EvaluationStatus.PENDING,
-                    message="Contribution pending evaluation",
-                    completed=False,
-                    metadata={
-                        "user_address": user_address,
-                        "submission_time": time.time(),
-                    }
-                )
-                
-            self.evaluations[task_id].status = EvaluationStatus.PROCESSING
-            self.evaluations[task_id].message = "Evaluating contribution quality"
+            # Get focus measure from blur service
+            focus_measure = self.blur_service.variance_of_laplacian_from_bytes(file_content)
             
-            # Simulate AI evaluation (replace with actual model in production)
-            await asyncio.sleep(2)  # Simulate processing time
+            # Check if focus measure meets threshold
+            is_blurry = focus_measure < self.blur_threshold
             
-            # Always approve for dummy implementation
-            quality_score = 0.95  # High quality score for testing
-            is_approved = True    # Always approve
-            
-            # Update evaluation with score
-            self.evaluations[task_id].score = quality_score
-            
-            try:
-                # Try to import the reward service
-                from .reward.xp_reward import XpRewardService
-                reward_service = XpRewardService()
-                
-                # Award XP for contribution
-                xp_result = await reward_service.award_xp_for_contribution(
-                    user_address, 
-                    quality_score
-                )
-                
-                # Mint achievement token
-                achievement_result = await reward_service.mint_achievement(
-                    user_address,
-                    0,  # BEGINNER type
-                    f"Quality ASL Training Data Contribution",
-                    upload_result.get("ipfsHash", "")
-                )
-                
-                # Update evaluation with rewards
-                self.evaluations[task_id].reward = {
-                    "xp": xp_result,
-                    "achievement": achievement_result
+            if is_blurry:
+                return {
+                    "success": False,
+                    "message": "Image is too blurry",
+                    "focus_measure": focus_measure,
+                    "threshold": self.blur_threshold
                 }
-            except ImportError:
-                # If reward service is not available, create dummy reward response
-                self.evaluations[task_id].reward = {
-                    "xp": {
-                        "success": True,
-                        "amount": 100,
-                        "transaction_hash": f"0x{uuid.uuid4().hex}"
-                    },
-                    "achievement": {
-                        "success": True,
-                        "token_id": random.randint(1000, 9999),
-                        "transaction_hash": f"0x{uuid.uuid4().hex}"
-                    }
-                }
-                
-            # Update final status
-            self.evaluations[task_id].status = EvaluationStatus.APPROVED
-            self.evaluations[task_id].message = "Contribution accepted, rewards issued"
-            self.evaluations[task_id].completed = True
-                
+            
+            # Calculate normalized score (higher is better)
+            # Scale between 0-1 with 1 being perfect focus
+            normalized_score = min(1.0, focus_measure / (self.blur_threshold * 2))
+            
+            return {
+                "success": True,
+                "message": "Image has acceptable focus",
+                "focus_measure": focus_measure,
+                "score": normalized_score,
+                "threshold": self.blur_threshold
+            }
+            
         except Exception as e:
-            print(f"Error processing evaluation: {e}")
-            # Set failure status
-            if task_id in self.evaluations:
-                self.evaluations[task_id].status = EvaluationStatus.FAILED
-                self.evaluations[task_id].message = f"Evaluation failed: {str(e)}"
-                self.evaluations[task_id].completed = True
+            logger.error(f"Blur evaluation error: {e}")
+            return {
+                "success": False,
+                "message": f"Blur evaluation failed: {str(e)}",
+                "error": str(e)
+            }
+    
+    async def _evaluate_landmarks(self, landmarks: Dict[str, Any]) -> Dict[str, Any]:
+        """Evaluate if image contains detectable hand landmarks"""
+        try:
+            # Process landmarks using ASL service
+            result = self.asl_service.process_landmarks(landmarks)
+            
+            # Return the result directly from ASL service
+            if not result.get("success", False):
+                logger.warning(f"Landmark evaluation failed: {result.get('message')}")
+                return {
+                    "success": False,
+                    "message": result.get("message", "Hand landmark detection failed"),
+                    "details": result
+                }
+                
+            # Successful evaluation
+            return {
+                "success": True,
+                "message": f"Hand landmarks detected, identified as letter '{result.get('letter')}'",
+                "score": result.get("score", 0.5),
+                "confidence": result.get("confidence", 0),
+                "letter": result.get("letter", "unknown")
+            }
+            
+        except Exception as e:
+            logger.error(f"Landmark evaluation error: {e}")
+            return {
+                "success": False,
+                "message": f"Landmark evaluation failed: {str(e)}",
+                "error": str(e)
+            }
+    
+    async def get_evaluation_status(self, task_id: str) -> EvaluationResult:
+        """Get the status of an evaluation"""
+        if task_id not in self.evaluations:
+            return EvaluationResult(
+                task_id=task_id,
+                status=EvaluationStatus.PENDING,
+                message="Contribution pending evaluation",
+                completed=False
+            )
+        return self.evaluations[task_id]
+
+    async def update_evaluation_status(self, task_id: str, updated_result: EvaluationResult) -> EvaluationResult:
+        """
+        Update the status of an evaluation
+        Update the status of apdate
+        
+        Arg
+            task_id: Task ID to update
+            updated_result: Updated result
+        Returns:
+            Updated evaluation result
+        """
+        if task_id not in self.evaluations:
+            logger.warning(f"Attempted to update nonexistent evaluation: {task_id}")
+            logger.warning(f"Attempted to update nonexistent e: {task_id}")
+            return updated_result
+        # Up
+        # Update the stored evaluation
+        self.evaluations[task_id] = updated_result
+        logger.info(f"Updated evaluation status for task {task_id}: {updated_result.status}")
+        return self.evaluations[task_id]
