@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     CHAIN_ID: int = Field(default=314159)
 
     # Add blockchain configuration settings
-    FILECOIN_TESTNET_RPC_URL: str = Field(..., env="FILECOIN_TESTNET_RPC_URL")
-    BLOCKCHAIN_PRIVATE_KEY: str = Field(..., env="BLOCKCHAIN_PRIVATE_KEY")
+    FILECOIN_TESTNET_RPC_URL: str = Field(default="", env="FILECOIN_TESTNET_RPC_URL")
+    BLOCKCHAIN_PRIVATE_KEY: str = Field(default="", env="BLOCKCHAIN_PRIVATE_KEY")
     ERC20_XP_CONTRACT_ADDRESS: str = Field(default="0xB65A3b71b5856a70Fd55E5926d4a22931Bd048D5", env="ERC20_XP_CONTRACT_ADDRESS")
 
     class Config:

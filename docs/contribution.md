@@ -6,7 +6,7 @@ This guide explains how to contribute to our project, including code contributio
 
 ### Setting Up the Development Environment
 
-Follow the [Setup Guide](setup.md) to get your development environment ready.
+To set up your local development environment, please refer to the main [README.md](../README.md) at the root of the project. It provides links to the specific setup instructions for each component (frontend, backend, blockchain).
 
 ### Contribution Workflow
 
