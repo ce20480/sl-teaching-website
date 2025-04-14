@@ -189,7 +189,8 @@ class ContributionService:
         task_id: str, 
         file_content: bytes,
         task_metadata: Dict[str, Any],
-        client_landmarks=None
+        client_landmarks=None,
+        blur_only: bool = False
     ) -> Any:
         """
         Process the evaluation phase of the workflow.
@@ -199,6 +200,7 @@ class ContributionService:
             file_content: Binary content of the file
             task_metadata: Additional metadata about the task
             client_landmarks: Optional pre-detected hand landmarks from client
+            blur_only: If True, only perform blur detection and skip other evaluations
             
         Returns:
             Evaluation result
@@ -208,6 +210,7 @@ class ContributionService:
             evaluation_params = {
                 "task_id": task_id,
                 "file_content": file_content,
+                "blur_only": blur_only,  # Pass the blur_only flag to the evaluator
             }
             
             # If client landmarks are provided, add them to the evaluation params

@@ -2,11 +2,8 @@ import { apiClient } from "./api-client";
 import { AxiosError } from "axios";
 import {
   ContributionStatusResponse,
-  EvaluationRequest,
   EvaluationResponse,
-  RewardRequest,
   RewardResponse,
-  UploadRequest,
   UploadResponse,
 } from "@/types/contribution";
 
@@ -14,14 +11,27 @@ import {
 interface LilypadJobResponse {
   success: boolean;
   job_id?: string;
+  task_id?: string;
   status: string;
   message?: string;
   error?: string;
+  content_hash?: string;
+  evaluation?: {
+    status: string;
+    success: boolean;
+    details?: {
+      blur_score?: number;
+      landmark_score?: number;
+      detected_letter?: string;
+      [key: string]: unknown; // Allow other properties but with unknown type
+    };
+  };
 }
 
 interface LilypadStatusResponse {
   status: "pending" | "processing" | "completed" | "error" | "failed";
-  result: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
 }
 
 /**
@@ -483,10 +493,15 @@ export const contributionApi = {
   ): Promise<LilypadStatusResponse> {
     let currentDelay = initialDelay;
     let retries = 0;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 3; // Allow up to 3 consecutive errors
 
     while (retries < maxRetries) {
       try {
         const statusResponse = await this.checkLilypadStatus(jobId);
+
+        // Reset consecutive error counter on successful response
+        consecutiveErrors = 0;
 
         // If callback provided, update with current status
         if (onStatusUpdate) {
@@ -510,12 +525,32 @@ export const contributionApi = {
         await new Promise((resolve) => setTimeout(resolve, currentDelay));
       } catch (error) {
         console.error(`Error polling Lilypad job status: ${error}`);
+        consecutiveErrors++;
+
+        // If we've hit consecutive error limit, assume failure
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.log(
+            `Too many consecutive errors (${maxConsecutiveErrors}) for job ${jobId}, assuming failure`
+          );
+
+          // Return a failed status rather than throwing
+          return {
+            status: "failed",
+            error: `Multiple failed attempts to check status: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            result: { error: "Server error when checking job status" },
+          };
+        }
 
         // Check if we've hit retry limit
         if (retries >= maxRetries) {
-          throw new Error(
-            `Max retries (${maxRetries}) reached for job ${jobId}`
-          );
+          // Return a failed status rather than throwing
+          return {
+            status: "failed",
+            error: `Max retries (${maxRetries}) reached for job ${jobId}`,
+            result: { error: "Polling timeout" },
+          };
         }
 
         // Increase delay and continue
@@ -528,8 +563,10 @@ export const contributionApi = {
     }
 
     // If we've exhausted retries without completion
-    throw new Error(
-      `Job ${jobId} did not complete within the polling time limit`
-    );
+    return {
+      status: "failed",
+      error: `Job ${jobId} did not complete within the polling time limit`,
+      result: { error: "Polling timeout" },
+    };
   },
 };

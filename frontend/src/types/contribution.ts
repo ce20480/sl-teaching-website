@@ -216,4 +216,12 @@ export interface ContributionState {
     isRateLimited?: boolean;
     willRetry?: boolean;
   };
+
+  lilypadJobId?: string;
+  lilypadStatus?: "pending" | "processing" | "completed" | "failed" | "error";
+}
+
+export interface LilypadEvaluationResponse extends EvaluationResponse {
+  job_id?: string; // Lilypad job ID for status tracking
+  lilypad_status?: "pending" | "processing" | "completed" | "failed";
 }

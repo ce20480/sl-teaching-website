@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { ImageHandDetector } from "../hands/ImageHandDetector";
 import { HandLandmarkerResult } from "@mediapipe/tasks-vision";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle, XCircle, HandMetal, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Upload } from "lucide-react";
+import { ImagePreview } from "./ImagePreview";
 
 interface HandDetectionPrevalidatorProps {
   file: File;
@@ -81,16 +82,28 @@ export function HandDetectionPrevalidator({
           </div>
         )}
 
-        {/* Image preview with hand detection */}
-        {imageUrl && (
-          <div className="rounded-md overflow-hidden border border-gray-200">
-            <ImageHandDetector
-              imageUrl={imageUrl}
-              onHandsDetected={handleHandsDetected}
-              className="max-h-[400px] object-contain"
-            />
-          </div>
-        )}
+        {/* Two-part display:
+            1. Invisible hand detection component for processing
+            2. Visible ImagePreview component for user interaction */}
+        <div className="relative">
+          {/* Hidden hand detector (processes the image) */}
+          {imageUrl && (
+            <div className="absolute inset-0 opacity-0 pointer-events-none">
+              <ImageHandDetector
+                imageUrl={imageUrl}
+                onHandsDetected={handleHandsDetected}
+              />
+            </div>
+          )}
+
+          {/* Visible image preview with controls */}
+          <ImagePreview
+            file={file}
+            onRemove={onCancel}
+            className="mb-4"
+            landmarks={validationResult?.landmarks}
+          />
+        </div>
       </div>
 
       {/* Validation result message */}
@@ -137,14 +150,15 @@ export function HandDetectionPrevalidator({
         {validationResult?.isValid ? (
           <Button
             onClick={handleSubmit}
-            variant={validationResult.isValid ? "default" : "secondary"}
-            disabled={isValidating || !validationResult.isValid}
+            variant="default"
+            disabled={isValidating}
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            <HandMetal className="mr-2 h-4 w-4" />
+            <Upload className="mr-2 h-4 w-4" />
             Proceed with Upload
           </Button>
         ) : (
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel} disabled={isValidating}>
             Try Another Image
           </Button>
         )}

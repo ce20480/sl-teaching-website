@@ -125,10 +125,21 @@ class EvaluatorService:
     async def _process_evaluation(self, task: Dict[str, Any]) -> EvaluationResult:
         """
         Process a single evaluation task using multiple criteria
+        
+        Args:
+            task: Dictionary containing evaluation task parameters:
+                - task_id: Unique ID for the evaluation task
+                - file_content: Binary content of the file to evaluate
+                - landmarks: Optional pre-detected hand landmarks
+                - blur_only: If True, only blur detection is performed and landmark detection is skipped
+                
+        Returns:
+            EvaluationResult with status and details
         """
         task_id = task["task_id"]
         file_content = task.get("file_content", None)
         landmarks = task.get("landmarks", None)
+        blur_only = task.get("blur_only", False)  # Extract blur_only parameter
         
         # Create result object if it doesn't exist
         if task_id not in self.evaluations:
@@ -157,6 +168,21 @@ class EvaluatorService:
                 self.evaluations[task_id].completed = True
                 self.evaluations[task_id].metadata["evaluation_time"] = time.time()
                 return self.evaluations[task_id]
+            
+            # Store blur score regardless of blur_only flag
+            blur_score = blur_result.get("score", 0.5)
+            self.evaluations[task_id].metadata["blur_score"] = blur_score
+            self.evaluations[task_id].metadata["blur_details"] = blur_result
+            
+            # If blur_only is True, skip landmark detection and approve based on blur check only
+            if blur_only:
+                self.evaluations[task_id].status = EvaluationStatus.APPROVED
+                self.evaluations[task_id].message = "Image passed blur detection"
+                self.evaluations[task_id].score = blur_score
+                self.evaluations[task_id].completed = True
+                self.evaluations[task_id].metadata["evaluation_time"] = time.time()
+                self.evaluations[task_id].metadata["blur_only"] = True
+                return self.evaluations[task_id]
                 
             # 2. Check if hand landmarks are detectable
             landmark_result = await self._evaluate_landmarks(landmarks)
@@ -168,7 +194,6 @@ class EvaluatorService:
                 return self.evaluations[task_id]
             
             # Calculate overall score based on evaluation results
-            blur_score = blur_result.get("score", 0.5)
             landmark_score = landmark_result.get("score", 0.5)
             
             # Combined quality score (equal weighting)

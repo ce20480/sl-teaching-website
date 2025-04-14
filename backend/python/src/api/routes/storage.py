@@ -1,8 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form, Body, Depends
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from ...services.storage.akave_sdk import AkaveError
 from ...services.service_container import get_contribution_service, get_storage_sdk, initialize_services
 from ...core.config import settings
+from ...services.evaluator import EvaluationStatus
 import logging
 import traceback
 import json
@@ -923,6 +924,64 @@ async def evaluate_landmarks_lilypad(
                 "status": "failed"
             }
             
+        # Read file content for blur detection
+        file_content = await file.read()
+        
+        # Calculate content hash for file verification
+        content_hash = hashlib.md5(file_content).hexdigest()
+        
+        # Get contribution service
+        contribution_service = get_contribution_service()
+        
+        # Create initial task metadata
+        task_metadata = {
+            "task_id": job_id,
+            "file_id": job_id,  # Use job_id as file_id for tracking
+            "filename": file.filename,
+            "file_size": len(file_content),
+            "content_type": file.content_type,
+            "user_address": user_address,
+            "content_hash": content_hash  # Store hash in metadata
+        }
+        
+        # Perform blur detection only using the evaluation phase
+        blur_result = await contribution_service.process_evaluation_phase(
+            task_id=job_id,
+            file_content=file_content,
+            task_metadata=task_metadata,
+            client_landmarks=json.loads(landmarks),
+            blur_only=True  # New parameter to only do blur detection
+        )
+        
+        # Check if image is too blurry - EvaluationResult is a Pydantic model, not a dict
+        if blur_result.status == EvaluationStatus.REJECTED or not blur_result.completed:
+            # If blurry, return immediately with failure but still include job_id for tracking
+            LILYPAD_JOBS[job_id]["status"] = "failed"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": "Image is too blurry",
+                "blur_score": blur_result.metadata.get("blur_score", 0)
+            }
+            
+            return {
+                "success": False,
+                "error": "Image is too blurry. Please try with a clearer image.",
+                "job_id": job_id,
+                "status": "failed",
+                "task_id": job_id,  # Include task_id for frontend tracking
+                "blur_score": blur_result.metadata.get("blur_score", 0),
+                "evaluation": {
+                    "status": "failed",
+                    "success": False,
+                    "details": {
+                        "blur_score": blur_result.metadata.get("blur_score", 0)
+                    }
+                }
+            }
+            
+        # File position needs to be reset after reading
+        await file.seek(0)
+        
         # Parse landmarks
         try:
             landmarks_data = json.loads(landmarks)
@@ -938,6 +997,7 @@ async def evaluate_landmarks_lilypad(
                 "success": False,
                 "error": f"Invalid landmarks format: {str(e)}",
                 "job_id": job_id,
+                "task_id": job_id,
                 "status": "failed"
             }
         
@@ -948,11 +1008,22 @@ async def evaluate_landmarks_lilypad(
             job_id
         )
         
+        # Return success with evaluation details including blur score
         return {
             "success": True,
             "job_id": job_id,
+            "task_id": job_id,  # Include task_id for frontend tracking
             "status": "processing",
-            "message": "Lilypad evaluation started"
+            "message": "Lilypad evaluation started",
+            "content_hash": content_hash,  # Include content hash for upload phase
+            "evaluation": {
+                "status": "completed",
+                "success": True,
+                "details": {
+                    "blur_score": blur_result.metadata.get("blur_score", 0.8),  # Include blur score from detection
+                    "landmark_score": blur_result.metadata.get("landmark_score", 0.9)
+                }
+            }
         }
         
     except Exception as e:
@@ -970,6 +1041,7 @@ async def evaluate_landmarks_lilypad(
                 "success": False,
                 "error": f"Lilypad evaluation failed: {str(e)}",
                 "job_id": job_id,
+                "task_id": job_id,
                 "status": "failed"
             }
         
@@ -993,7 +1065,6 @@ async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
         
         # Properly format landmarks as JSON and escape it for command-line use
         landmarks_json = json.dumps(landmarks_data)
-        # Escape the JSON string for shell command
         
         # Prepare the lilypad command
         env_vars["WEB3_PRIVATE_KEY"] = settings.WEB3_PRIVATE_KEY
@@ -1001,7 +1072,7 @@ async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
         command = [
             "lilypad",
             "run",
-            "github.com/ce20480/lilypad-module-sl:1cd44ef8f155c8e6a379250d972de71ce77b6ea2",
+            "github.com/ce20480/lilypad-module-sl:d1792d4fd72577718c1c4318892b262076d9ff66",
             "-i",
             f'INPUT={landmarks_json}'
         ]
@@ -1017,6 +1088,13 @@ async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
             capture_output=True,
             env=env_vars
         )
+        if result.stderr:
+            logger.error(f"Lilypad subprocess error for job {job_id}: {result.stderr}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": result.stderr
+            }
         
         # Log subprocess output for debugging
         logger.info(f"Command stdout: {result.stdout[:500]}...")
@@ -1072,8 +1150,15 @@ async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
         
         logger.info(f"Loaded result data: {file_data}")
         
-        if file_data.get("status") == "error":
-            # If the JSON indicates an error
+        # Check for errors in the output field (Lilypad model format)
+        if "output" in file_data and file_data["output"].get("status") == "error":
+            # Extract error message from output
+            error_message = file_data["output"].get("message", "Unknown model error")
+            logger.error(f"Lilypad module returned error for job {job_id}: {error_message}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = file_data
+        elif file_data.get("status") == "error":
+            # Legacy format - direct error in the root object
             logger.error(f"Lilypad module returned error for job {job_id}: {file_data.get('message', 'Unknown error')}")
             LILYPAD_JOBS[job_id]["status"] = "error"
             LILYPAD_JOBS[job_id]["result"] = file_data
@@ -1102,6 +1187,177 @@ async def run_lilypad_evaluation(landmarks_data: list[float], job_id: str):
             "message": str(e)
         }
 
+
+@router.post("/evaluate_lilypad_focus")
+async def evaluate_lilypad_focus(
+    file: UploadFile = File(...),
+    user_address: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    Evaluate an uploaded image's focus measure with your Lilypad module.
+    Returns a job ID for status polling.
+    """
+    import base64
+
+    try:
+        # 1. Create a unique job ID
+        job_id = str(uuid.uuid4())
+        LILYPAD_JOBS[job_id] = {"status": "pending", "result": None}
+        
+        logger.info(f"Starting Lilypad focus-eval job {job_id} for user {user_address}")
+        
+        # 2. Read the uploaded file bytes
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise ValueError("Empty file or failed to read bytes")
+
+        # 3. Base64-encode the file
+        file_b64 = base64.b64encode(file_bytes).decode("utf-8")
+        
+        # 4. Kick off background task
+        background_tasks.add_task(
+            run_lilypad_focus_evaluation,
+            file_b64,
+            job_id
+        )
+
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": "processing",
+            "message": "Lilypad focus evaluation started"
+        }
+
+    except Exception as e:
+        logger.error(f"Lilypad focus evaluation error: {str(e)}")
+        # If job_id was created, mark it failed
+        if "job_id" in locals():
+            LILYPAD_JOBS[job_id]["status"] = "failed"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": str(e)
+            }
+            return {
+                "success": False,
+                "error": str(e),
+                "job_id": job_id,
+                "status": "failed"
+            }
+        
+        # Fallback if no job_id
+        return {
+            "success": False,
+            "error": str(e),
+            "status": "failed"
+        }
+
+async def run_lilypad_focus_evaluation(file_b64: str, job_id: str):
+    """
+    Background task to run the "focus measure" Lilypad module.
+    Expects 'INPUT' to be base64 of the image bytes.
+    """
+    import subprocess
+    import os
+
+    try:
+        env_vars = os.environ.copy()
+        env_vars["WEB3_PRIVATE_KEY"] = settings.WEB3_PRIVATE_KEY
+        
+        # We'll pass the file bytes as a base64 string in -i
+        command = [
+            "lilypad",
+            "run",
+            "github.com/ce20480/lilypad-module-focus-measure:74541ee759a92d8dd19d7fdf8a835eae57168e76",
+            "-i",
+            f'INPUT={file_b64}'  # no extra quotes, to avoid double quoting
+        ]
+        
+        logger.info(f"Running Lilypad focus command for job {job_id}")
+        logger.info(f"Command: {' '.join(command)}")
+        
+        result = subprocess.run(
+            command,
+            check=True,
+            text=True,
+            capture_output=True,
+            env=env_vars
+        )
+        
+        # Log output (for debugging)
+        logger.info(f"Lilypad job stdout (truncated): {result.stdout[:500]}...")
+        if result.stderr:
+            logger.warning(f"Lilypad job stderr: {result.stderr}")
+        
+        # *** 5. Parse the local path from stdout ***
+        lines = result.stdout.strip().split("\n")
+        path_line = None
+        
+        for line in reversed(lines):
+            if "open /tmp/lilypad/data/downloaded-files" in line:
+                path_line = line.strip()
+                break
+        
+        # fallback to regex
+        if not path_line:
+            pattern = r"open\s+(/tmp/lilypad/data/downloaded-files/\S+)"
+            match = re.search(pattern, result.stdout)
+            if match:
+                dir_path = match.group(1)
+                file_path = os.path.join(dir_path, "outputs", "result.json")
+            else:
+                logger.error("Could not find output path in Lilypad response.")
+                LILYPAD_JOBS[job_id]["status"] = "error"
+                LILYPAD_JOBS[job_id]["result"] = {
+                    "status": "error",
+                    "message": "No output path found in Lilypad logs."
+                }
+                return
+        else:
+            path_line = path_line.replace("open ", "")
+            file_path = os.path.join(path_line, "outputs", "result.json")
+        
+        # *** 6. Load /outputs/result.json ***
+        if not os.path.exists(file_path):
+            logger.error(f"No result.json at {file_path}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = {
+                "status": "error",
+                "message": f"Could not find result.json at {file_path}"
+            }
+            return
+        
+        with open(file_path, "r") as fp:
+            file_data = json.load(fp)
+        
+        # The module writes: {"output": {"success": <bool>, "focus_measure": <float>, "score": <float>, "threshold": <float>}}
+        # or possibly an error. Let's assume "output" is success if "status" != "error".
+        output = file_data.get("output", {})
+        if output.get("status") == "error":
+            logger.error(f"Focus measure module returned error: {output.get('message')}")
+            LILYPAD_JOBS[job_id]["status"] = "error"
+            LILYPAD_JOBS[job_id]["result"] = output
+        else:
+            # success
+            LILYPAD_JOBS[job_id]["status"] = "completed"
+            LILYPAD_JOBS[job_id]["result"] = output
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Focus measure Lilypad subprocess error for job {job_id}: {e}")
+        LILYPAD_JOBS[job_id]["status"] = "error"
+        LILYPAD_JOBS[job_id]["result"] = {
+            "status": "error",
+            "message": e.stderr or e.stdout
+        }
+    except Exception as e:
+        logger.error(f"General error in focus measure module for job {job_id}: {str(e)}")
+        LILYPAD_JOBS[job_id]["status"] = "error"
+        LILYPAD_JOBS[job_id]["result"] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+
 @router.get("/lilypad/status/{job_id}")
 async def get_lilypad_job_status(job_id: str) -> Dict[str, Any]:
     """
@@ -1110,4 +1366,22 @@ async def get_lilypad_job_status(job_id: str) -> Dict[str, Any]:
     if job_id not in LILYPAD_JOBS:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    return LILYPAD_JOBS[job_id]
+    job_data = LILYPAD_JOBS[job_id]
+    
+    # Format response to ensure it has consistent structure
+    response = {
+        "status": job_data["status"],
+    }
+    
+    # Include result if available
+    if job_data["result"]:
+        response["result"] = job_data["result"]
+        
+        # If status is error, ensure we're propagating the error correctly
+        if job_data["status"] == "error":
+            # Check if there's a nested error in the output field
+            if isinstance(job_data["result"], dict) and "output" in job_data["result"] and job_data["result"]["output"].get("status") == "error":
+                # Add error message to the top level for easier access
+                response["error"] = job_data["result"]["output"].get("message", "Unknown error")
+    
+    return response
