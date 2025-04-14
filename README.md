@@ -1,4 +1,4 @@
-# ASL Teaching Website
+# ASL Teaching Website (SignLang)
 
 SignLang: Empowering Accessibility through Open-Source and Decentralization
 
@@ -6,57 +6,87 @@ Every day, millions rely on sign language to communicate—but access to high-qu
 
 SignLang is here to disrupt this. We're building an open-source, decentralized American Sign Language (ASL) translator, leveraging the power of the Filecoin ecosystem and its decentralized storage (Akave, Storacha, Lighthouse, Recall) and compute services (Lilypad).
 
-The Problem We're Solving:
+## The Problem We're Solving:
 
-Educational Barriers: Many educational institutions lack affordable, reliable ASL translation resources, limiting opportunities for Deaf and hard-of-hearing students.
+- **Educational Barriers:** Many educational institutions lack affordable, reliable ASL translation resources, limiting opportunities for Deaf and hard-of-hearing students.
+- **Healthcare Communication:** Miscommunication in healthcare settings due to limited interpreter availability can lead to severe misunderstandings and reduced quality of care.
+- **Accessibility in Daily Life:** Dependence on costly human interpreters or centralized, proprietary translation solutions leaves many users isolated, unable to communicate spontaneously or in real-time.
 
-Healthcare Communication: Miscommunication in healthcare settings due to limited interpreter availability can lead to severe misunderstandings and reduced quality of care.
-
-Accessibility in Daily Life: Dependence on costly human interpreters or centralized, proprietary translation solutions leaves many users isolated, unable to communicate spontaneously or in real-time.
-
-Our Vision
+## Our Vision
 
 We envision a future where sign language translation models aren't gatekept by conglomerates but grown organically by the community itself. The availability of comprehensive training data remains a significant barrier—but we've turned this challenge into our greatest opportunity.
 
-How it Works:
+## How it Works:
 
-Community-Driven Data Collection: Our initial app helps users learn and practice ASL. As users improve, they contribute high-quality, user-generated videos back into our dataset, enriching the model organically.
+- **Community-Driven Data Collection:** Our initial app helps users learn and practice ASL. As users improve, they contribute high-quality, user-generated videos back into our dataset, enriching the model organically.
+- **Decentralized Storage (Filecoin Network):** We utilize decentralized storage providers like Akave, Storacha, Lighthouse, and Recall. Filecoin's incentivized storage network ensures secure, censorship-resistant, and privacy-focused data hosting.
+- **Decentralized Compute with Lilypad:** By leveraging Lilypad's decentralized compute network, SignLang runs translations without reliance on centralized cloud providers—lowering costs and preserving user privacy.
+- **Achievement System:** We've implemented an ERC4973 Soulbound Token system to reward users for their contributions and progress in learning ASL. These non-transferable achievement tokens are stored on IPFS and provide a permanent record of a user's journey in learning ASL.
 
-Decentralized Storage (Filecoin Network): We utilize decentralized storage providers like Akave, Storacha, Lighthouse, and Recall. Filecoin's incentivized storage network ensures secure, censorship-resistant, and privacy-focused data hosting.
+## Tech Stack Overview
 
-Decentralized Compute with Lilypad: By leveraging Lilypad's decentralized compute network, SignLang runs translations without reliance on centralized cloud providers—lowering costs and preserving user privacy.
+- **Frontend:** React, TypeScript, Vite, TailwindCSS, Shadcn UI, Web3Modal/Wagmi
+- **Backend (Middleware):** Express, TypeScript
+- **Backend (Core):** Python, FastAPI, OpenCV, ML Models
+- **Blockchain:** Solidity, Hardhat, OpenZeppelin, Filecoin FVM/EVM, IPFS
+- **Decentralized Services:** Filecoin Storage (Akave, Storacha, Lighthouse), Lilypad Compute
 
-Achievement System: We've implemented an ERC4973 Soulbound Token system to reward users for their contributions and progress in learning ASL. These non-transferable achievement tokens are stored on IPFS and provide a permanent record of a user's journey in learning ASL.
+## Project Structure and Local Setup Guide
 
-Progress So Far:
+This project is structured as a monorepo containing distinct parts: frontend, backend (Python core and Express middleware), and blockchain components.
 
-Filecoin Storage: We've explored multiple storage providers:
+To run the entire application stack locally, you will need to set up and run each component individually. Please refer to the specific README file within each directory for detailed installation, configuration (including `.env` setup), and running instructions.
 
-Storacha: Successfully storing and retrieving data.
+1.  **Frontend (`./frontend`)**
 
-Akave: Exploring secure storage via private keys.
+    - Handles the user interface and interaction.
+    - Communicates with the Express middleware.
+    - **Setup Guide:** [`frontend/README.md`](./frontend/README.md)
+    - _Default Port (Development):_ `5173` or `5174`
 
-Lighthouse: Simple, reliable data handling.
+2.  **Backend - Express Middleware (`./backend/express`)**
 
-Lilypad Compute: A working Lilypad module now executes our translation model using decentralized compute resources.
+    - Acts as a proxy between the frontend and the Python backend.
+    - Handles CORS, rate limiting, and potentially some request/response formatting.
+    - **Setup Guide:** [`backend/express/README.md`](./backend/express/README.md)
+    - _Default Port (Development):_ `4000`
 
-Achievement Token System: Implemented ERC4973 Soulbound Tokens with:
+3.  **Backend - Python Core (`./backend/python`)**
 
-- Achievement tiers (Beginner, Intermediate, Advanced, Expert, Master)
-- IPFS metadata storage for achievement details
-- Gas-efficient implementation for Filecoin FVM
-- Web3Modal integration for wallet connection
-- Support for MetaMask, WalletConnect, and Coinbase Wallet
+    - Contains the main application logic, including ML model execution, data processing, and blockchain interactions.
+    - Exposes a FastAPI interface.
+    - **Setup Guide:** [`backend/python/README.md`](./backend/python/README.md)
+    - _Default Port (Development):_ `8000`
 
-Long-Term Impact:
+4.  **Blockchain (`./blockchain`)**
+    - Contains the Solidity smart contracts (ERC4973 Achievement Token, XP Token).
+    - Uses Hardhat for development, testing, and deployment.
+    - **Setup Guide:** [`blockchain/README.md`](./blockchain/README.md)
 
-Our ambition goes beyond simply translating ASL. By creating a robust, decentralized dataset, we empower a global community to continuously improve and expand the translation model. Applications include real-time healthcare communication, educational resources, and accessible, barrier-free everyday interactions.
+**Interaction Flow (Local Development):**
 
-Why Decentralized & Open Source?
+`User Browser (Frontend @ :5173)` -> `Express Middleware (@ :4000)` -> `Python Backend (@ :8000)`
 
-Decentralization ensures transparency, accessibility, and sustainability, turning users into active participants—not passive consumers. Open sourcing our model accelerates innovation, ensuring everyone benefits.
+The Python backend and potentially the frontend interact directly with the deployed blockchain contracts based on their respective `.env` configurations.
 
-Join SignLang—let's democratize sign language translation, break barriers together, and build a more inclusive world.
+## Getting Started
+
+1.  **Clone the repository:**
+
+    ```bash
+    git clone https://github.com/ce20480/asl-teaching-website.git
+    cd asl-teaching-website
+    ```
+
+2.  **Follow the setup guides:** Navigate into each directory (`frontend`, `backend/express`, `backend/python`, `blockchain`) and follow the instructions in their respective `README.md` files to install dependencies, set up environment variables (`.env`), and run each service.
+
+## Contribution
+
+Contributions are welcome! Please refer to the contribution guidelines (if available) or open an issue/pull request.
+
+## License
+
+[Specify your license, e.g., MIT License]
 
 ## Features
 
